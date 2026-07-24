@@ -55,7 +55,7 @@ export function typeLabel(name: string): string {
   return TYPE_LABEL_VI[name] ?? name;
 }
 
-const CACHE_KEY = 'habit-pet:types:v1';
+const CACHE_KEY = 'pokemon-habit:types:v1';
 const mem = new Map<number, string[]>();
 let diskLoaded = false;
 

@@ -5,7 +5,7 @@ import { Colors, darkColors, lightColors } from './theme';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
-const KEY = 'habit-pet:theme:v1';
+const KEY = 'pokemon-habit:theme:v1';
 
 interface ThemeContextValue {
   colors: Colors;

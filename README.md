@@ -40,7 +40,7 @@ App nhắc nhở & xây dựng thói quen theo cơ chế **nuôi sinh vật ti�
 ## Chạy thử
 
 ```bash
-cd habit-pet
+cd pokemon-habit
 npm install
 
 # Trên điện thoại thật (dễ nhất, có đủ âm thanh + rung):

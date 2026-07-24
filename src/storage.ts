@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppData, CURRENT_VERSION } from './types';
 import { todayStr } from './date';
 
-const KEY = 'habit-pet:data:v3';
+const KEY = 'pokemon-habit:data:v3';
 
 export function defaultData(): AppData {
   return {

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Rồng Thói Quen",
-    "slug": "habit-pet",
+    "slug": "pokemon-habit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,7 +20,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.habit-pet"
+      "bundleIdentifier": "com.anonymous.pokemon-habit"
     },
     "android": {
       "adaptiveIcon": {
