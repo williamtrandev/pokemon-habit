@@ -74,23 +74,32 @@ node scripts/seed-sim.mjs --empty   # reset to empty
 
 ## CI
 
-`.github/workflows/test.yml` — runs on every PR and push to `main`:
-- `units` — `npm test` (the fast gate).
-- `e2e-ios` — `needs: units`; macOS runner, iOS simulator, Maestro.
-- `e2e-android` — `needs: units`; Ubuntu runner + KVM, Android emulator, Maestro.
+`.github/workflows/test.yml` runs on every PR and push to `main`:
+- `units` — `npm test` (the fast gate, always runs).
+- `e2e` (matrix iOS + Android) — the way large RN/Expo projects run E2E in CI:
+  the build is **offloaded to EAS Build** (cloud) and the flows run on **Maestro
+  Cloud** (real devices). No native toolchain, simulator/emulator, or Metro on
+  the runner — that path is too slow and flaky on hosted runners (`expo run`
+  stays foreground and hangs; from-source pod builds take 100+ min).
 
-Both e2e jobs build in **Release** so the JS bundle is embedded — no Metro dev
-server is needed (a debug build would hang the CI step waiting on the bundler).
-Android's Release variant is signed with the debug keystore by the Expo template,
-so no signing secrets are required. Flows are patched to the Android
-`applicationId` (`com.anonymous.pokemonhabit`) with `sed` in that job. On failure
-each job uploads artifacts (`.expo/xcodebuild.log`, `~/.maestro/tests`).
+### One-time setup (needed for the `e2e` job to run)
 
-Merge gate: mark `units`, `e2e-ios`, `e2e-android` as required status checks in
-GitHub ▸ Settings ▸ Branches ▸ main.
+It's gated on two secrets, so until they exist the job is skipped and CI stays
+green.
 
-Cost note: `e2e-ios` uses macOS minutes (billed 10×). `concurrency` cancels stale
-runs. If it gets heavy, narrow with a `paths` filter so docs-only changes skip e2e.
+1. Create an Expo account, then locally: `npx eas-cli@latest login && npx eas-cli@latest init` (writes the EAS project id into `app.json`).
+2. GitHub ▸ Settings ▸ Secrets and variables ▸ Actions, add:
+   - `EXPO_TOKEN` — expo.dev ▸ Account ▸ Access tokens.
+   - `MAESTRO_CLOUD_API_KEY` — console.mobile.dev.
+3. Merge gate: GitHub ▸ Settings ▸ Branches ▸ `main`, mark `units` and
+   `e2e (ios)` / `e2e (android)` as required status checks.
+
+Build profile lives in `eas.json` (`e2e`: iOS simulator + Android APK). Both
+are debug-signed / unsigned-simulator, so no store credentials are needed.
+
+Note: EAS Build and Maestro Cloud are paid services (with free tiers). If you'd
+rather not use them, a self-hosted macOS runner can build locally in ~10 min; the
+previous xcodebuild/gradle + local-Maestro job is in git history.
 
 ## Adding tests for a new feature
 

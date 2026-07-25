@@ -6,13 +6,12 @@ on:
   pull_request:
   workflow_dispatch: {}
 
-# Cancel superseded runs on the same ref (don't burn runner minutes on stale commits).
 concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Fast, deterministic pure-logic units. Both e2e jobs gate on this passing.
+  # Fast, deterministic pure-logic units — the gate on every push/PR.
   units:
     runs-on: ubuntu-latest
     steps:
@@ -24,125 +23,68 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  # E2E on the iOS simulator via Maestro.
-  # We build the binary with xcodebuild and let Maestro launch it. `expo run:ios`
-  # is NOT used: it stays foreground tailing logs after launch and hangs the step.
-  # Release config embeds the JS bundle, so no Metro dev server is needed.
-  e2e-ios:
-    needs: units
-    runs-on: macos-15
-    timeout-minutes: 45
-    env:
-      # Ruby 4 + CocoaPods 1.17 crash on a non-UTF-8 locale (Encoding::CompatibilityError).
-      LANG: en_US.UTF-8
-      LC_ALL: en_US.UTF-8
-      RUBYOPT: '-Eutf-8'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-      - run: npm ci
-
-      - name: Install Maestro
-        run: |
-          curl -Ls https://get.maestro.mobile.dev | bash
-          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
-
-      - name: Prebuild native iOS project (installs pods)
-        run: npx expo prebuild -p ios
-
-      - name: Build app (Release, simulator)
-        run: |
-          xcodebuild \
-            -workspace ios/RngThiQuen.xcworkspace \
-            -scheme RngThiQuen \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -derivedDataPath ios/build \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
-      - name: Boot simulator & install app
-        run: |
-          DEVICE=$(xcrun simctl list devices available | grep -oE "iPhone [0-9][^(]*\([0-9A-F-]{36}\)" | grep -oE "[0-9A-F-]{36}" | head -1)
-          xcrun simctl boot "$DEVICE" || true
-          APP=$(find ios/build/Build/Products/Release-iphonesimulator -maxdepth 1 -name '*.app' | head -1)
-          xcrun simctl install "$DEVICE" "$APP"
-
-      - name: Run Maestro flows
-        run: maestro test .maestro
-
-      - name: Upload debug artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-debug
-          path: |
-            ios/build/Logs
-            ~/.maestro/tests
-          if-no-files-found: ignore
-
-  # E2E on an Android emulator via Maestro.
-  # Same idea: assemble the APK with Gradle, install it, let Maestro launch it.
-  # Release embeds the JS bundle and (in the Expo template) is debug-signed, so
-  # no Metro server and no signing secrets are needed.
-  e2e-android:
-    needs: units
+  # Whether the E2E service tokens are configured as repo secrets. Gates the e2e
+  # job so the workflow stays green on forks / before setup instead of red.
+  config:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    outputs:
+      e2e_ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        run: echo "ready=${{ secrets.EXPO_TOKEN != '' && secrets.MAESTRO_CLOUD_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  # E2E the way large RN/Expo projects run it in CI: build is offloaded to
+  # EAS Build (cloud), flows run on Maestro Cloud (real devices). No native
+  # toolchain, no simulator/emulator, no Metro on the runner.
+  #
+  # Requires two repo secrets (Settings ▸ Secrets and variables ▸ Actions):
+  #   EXPO_TOKEN            — Expo access token (expo.dev ▸ Account ▸ Access tokens)
+  #   MAESTRO_CLOUD_API_KEY — Maestro Cloud API key (console.mobile.dev)
+  # And once locally: `npx eas-cli@latest init` to link the EAS project.
+  e2e:
+    needs: [units, config]
+    if: needs.config.outputs.e2e_ready == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios, android]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
       - run: npm ci
 
-      - name: Install Maestro
-        run: |
-          curl -Ls https://get.maestro.mobile.dev | bash
-          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
 
-      # Android applicationId has no hyphens: com.anonymous.pokemonhabit.
+      # Android applicationId has no hyphens.
       - name: Point Maestro flows at the Android package
+        if: matrix.platform == 'android'
         run: sed -i 's/com\.anonymous\.pokemon-habit/com.anonymous.pokemonhabit/' .maestro/*.yaml
 
-      - name: Prebuild native Android project
-        run: npx expo prebuild -p android
-
-      - name: Assemble Release APK (embeds JS, debug-signed)
-        run: cd android && ./gradlew assembleRelease
-
-      - name: Enable KVM
+      - name: EAS Build (cloud) and download the artifact
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          eas build --platform ${{ matrix.platform }} --profile e2e --non-interactive --wait
+          URL=$(eas build:list --platform ${{ matrix.platform }} --status finished --limit 1 \
+                --json --non-interactive \
+                | node -e 'const b=JSON.parse(require("fs").readFileSync(0));console.log(b[0].artifacts.applicationArchiveUrl)')
+          curl -L -o app-artifact "$URL"
+          # iOS simulator builds ship as a tarball of the .app; extract it.
+          if [ "${{ matrix.platform }}" = "ios" ]; then
+            mkdir app-out && tar -xzf app-artifact -C app-out
+            echo "APP_FILE=$(find app-out -maxdepth 2 -name '*.app' | head -1)" >> "$GITHUB_ENV"
+          else
+            echo "APP_FILE=app-artifact" >> "$GITHUB_ENV"
+          fi
 
-      - name: Boot emulator, install APK, run Maestro
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: Run flows on Maestro Cloud
+        uses: mobile-dev-inc/action-maestro-cloud@v1
         with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_6
-          script: |
-            adb install -r "$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)"
-            maestro test .maestro
-
-      - name: Upload Maestro artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-debug
-          path: ~/.maestro/tests
-          if-no-files-found: ignore
+          api-key: ${{ secrets.MAESTRO_CLOUD_API_KEY }}
+          app-file: ${{ env.APP_FILE }}
+          workspace: .maestro
