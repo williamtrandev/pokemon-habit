@@ -1,0 +1,39 @@
+# Smoke: app boots on empty state and all three tabs render.
+# Matching notes (learned from the view hierarchy):
+#  - Maestro anchors a text regex to the FULL text of an element. The empty-state
+#    card is ONE accessibility node ("🥚, Chưa có sinh vật nào, …, + Thêm mục tiêu"),
+#    so a substring must be wrapped in .* … .* to match.
+#  - Tab labels are their own exact nodes, matched with ^…$ so they don't collide
+#    with headings/buttons containing the same word.
+#  - extendedWaitUntil rides out the brief "hatching" splash + re-render after launch.
+appId: com.anonymous.pokemon-habit
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Đàn sinh vật"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: ".*Chưa có sinh vật nào.*"
+    timeout: 15000
+
+# Mục tiêu tab
+- tapOn:
+    text: "^Mục tiêu$"
+- extendedWaitUntil:
+    visible: "Mục tiêu của bạn"
+    timeout: 10000
+
+# Bộ sưu tập tab
+- tapOn:
+    text: "^Bộ sưu tập$"
+- extendedWaitUntil:
+    visible: "Đàn của bạn"
+    timeout: 10000
+
+# Back to Nuôi (home)
+- tapOn:
+    text: "^Nuôi$"
+- extendedWaitUntil:
+    visible: "Đàn sinh vật"
+    timeout: 10000

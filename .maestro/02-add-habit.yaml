@@ -1,0 +1,21 @@
+# Add a habit end-to-end via the Habits tab + FAB.
+# The empty-state card on Home routes to the Habits tab (it isn't the editor),
+# so we open the editor from the Habits FAB (accessibilityLabel "Thêm mục tiêu").
+# The new creature's evolution line is fetched from PokéAPI, so the row can take
+# a few seconds — the assert uses an extended timeout.
+appId: com.anonymous.pokemon-habit
+---
+- launchApp:
+    clearState: true
+- tapOn:
+    text: "^Mục tiêu$"              # Habits tab
+- tapOn: "Thêm mục tiêu"            # FAB (accessibilityLabel)
+- extendedWaitUntil:
+    visible: "Mục tiêu mới"         # editor sheet heading
+    timeout: 10000
+- tapOn: "VD: Uống 2 lít nước"      # title input (placeholder)
+- inputText: "Chạy bộ E2E"
+- tapOn: "Lưu"
+- extendedWaitUntil:
+    visible: ".*Chạy bộ E2E.*"      # row is one merged node; match title as substring
+    timeout: 25000

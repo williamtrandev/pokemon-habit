@@ -1,0 +1,32 @@
+# Complete a habit and confirm the day's progress closes out.
+# Adds a habit (Habits tab + FAB), switches to Home, taps the completion toggle
+# by its accessibilityLabel, then asserts the ring reads 1/1 and the all-done
+# banner appears. Banner/ring substrings use .* wrappers (full-text match).
+appId: com.anonymous.pokemon-habit
+---
+- launchApp:
+    clearState: true
+- tapOn:
+    text: "^Mục tiêu$"
+- tapOn: "Thêm mục tiêu"
+- extendedWaitUntil:
+    visible: "Mục tiêu mới"
+    timeout: 10000
+- tapOn: "VD: Uống 2 lít nước"
+- inputText: "Uống nước E2E"
+- tapOn: "Lưu"
+- extendedWaitUntil:
+    visible: ".*Uống nước E2E.*"     # merged row node — match title as substring
+    timeout: 25000
+
+# Go to Home and complete it.
+- tapOn:
+    text: "^Nuôi$"
+- extendedWaitUntil:
+    visible: ".*Uống nước E2E.*"     # merged CreatureCard node
+    timeout: 10000
+- tapOn: "Hoàn thành Uống nước E2E"   # completion toggle (accessibilityLabel)
+- extendedWaitUntil:
+    visible: "1/1"                     # progress ring closed out
+    timeout: 10000
+- assertVisible: ".*Cả đàn hôm nay đều được chăm sóc.*"   # all-done banner

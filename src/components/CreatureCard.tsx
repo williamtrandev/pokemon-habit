@@ -31,7 +31,11 @@ export default function CreatureCard({ habit, onToggle, onOpen }: Props) {
   const tileColor = form.stage === 0 ? colors.primary : c.color;
 
   return (
-    <Pressable onPress={onOpen} style={({ pressed }) => [styles.card, done && styles.cardDone, pressed && styles.pressed]}>
+    <Pressable
+      onPress={onOpen}
+      accessible={false} // let the completion toggle be its own a11y node, not merged into the card
+      style={({ pressed }) => [styles.card, done && styles.cardDone, pressed && styles.pressed]}
+    >
       <View style={[styles.tile, { backgroundColor: tileColor + '1F', borderColor: tileColor + '3D' }]}>
         <CreatureView creature={c} size={60} glowColor={form.stage === 0 ? undefined : c.color} minGlowSize={56} />
       </View>
@@ -81,6 +85,8 @@ export default function CreatureCard({ habit, onToggle, onOpen }: Props) {
       <Pressable
         onPress={onToggle}
         hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={`${done ? 'Bỏ hoàn thành' : 'Hoàn thành'} ${habit.title}`}
         style={({ pressed }) => [styles.check, done && styles.checkDone, pressed && styles.checkPressed]}
       >
         <Ionicons name="checkmark-sharp" size={20} color={done ? '#fff' : colors.textDim + '55'} />

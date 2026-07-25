@@ -60,7 +60,7 @@ export default function HabitsScreen() {
         )}
       </ScrollView>
 
-      <Pressable style={styles.fab} onPress={openNew}>
+      <Pressable style={styles.fab} onPress={openNew} accessibilityRole="button" accessibilityLabel="Thêm mục tiêu">
         <Text style={styles.fabText}>+</Text>
       </Pressable>
 

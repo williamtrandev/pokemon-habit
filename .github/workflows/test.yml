@@ -1,0 +1,68 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+# Cancel superseded runs on the same ref (don't burn macOS minutes on stale commits).
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast, deterministic pure-logic units — the gate on every push/PR.
+  units:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  # E2E on a real iOS simulator via Maestro. Runs on every PR + push to main,
+  # but only after units pass (don't spend a ~15-min macOS build if logic is
+  # already broken). concurrency (above) cancels stale runs.
+  e2e-ios:
+    needs: units
+    runs-on: macos-15
+    env:
+      # Ruby 4 + CocoaPods 1.17 crash on non-UTF-8 locale (Encoding::CompatibilityError).
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      RUBYOPT: '-Eutf-8'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Install Maestro
+        run: |
+          curl -Ls https://get.maestro.mobile.dev | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Boot simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available | grep -m1 "iPhone 17 Pro (" | grep -oE "[0-9A-F-]{36}")
+          echo "DEVICE=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE" || true
+
+      - name: Build & install app on simulator
+        run: npx expo run:ios --device "$DEVICE"
+
+      - name: Run Maestro flows
+        run: maestro test .maestro
+
+      - name: Upload Maestro artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-output
+          path: ~/.maestro/tests
