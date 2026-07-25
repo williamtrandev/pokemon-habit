@@ -74,16 +74,23 @@ node scripts/seed-sim.mjs --empty   # reset to empty
 
 ## CI
 
-`.github/workflows/test.yml` — both tiers run automatically on every PR and push
-to `main`:
-- `units` — runs `npm test` (the fast gate).
-- `e2e-ios` — `needs: units`; builds the app on a macOS runner and runs Maestro.
-  Only starts once units pass, so a broken rule doesn't spend a ~15-min iOS build.
-  `concurrency` cancels superseded runs on the same ref. Also runnable on demand
-  via Actions ▸ test ▸ Run workflow.
+`.github/workflows/test.yml` — runs on every PR and push to `main`:
+- `units` — `npm test` (the fast gate).
+- `e2e-ios` — `needs: units`; macOS runner, iOS simulator, Maestro.
+- `e2e-android` — `needs: units`; Ubuntu runner + KVM, Android emulator, Maestro.
 
-Cost note: `e2e-ios` uses macOS minutes (billed 10×). If that gets heavy, narrow it
-— e.g. `pull_request` only, or add a `paths` filter so docs-only changes skip it.
+Both e2e jobs build in **Release** so the JS bundle is embedded — no Metro dev
+server is needed (a debug build would hang the CI step waiting on the bundler).
+Android's Release variant is signed with the debug keystore by the Expo template,
+so no signing secrets are required. Flows are patched to the Android
+`applicationId` (`com.anonymous.pokemonhabit`) with `sed` in that job. On failure
+each job uploads artifacts (`.expo/xcodebuild.log`, `~/.maestro/tests`).
+
+Merge gate: mark `units`, `e2e-ios`, `e2e-android` as required status checks in
+GitHub ▸ Settings ▸ Branches ▸ main.
+
+Cost note: `e2e-ios` uses macOS minutes (billed 10×). `concurrency` cancels stale
+runs. If it gets heavy, narrow with a `paths` filter so docs-only changes skip e2e.
 
 ## Adding tests for a new feature
 

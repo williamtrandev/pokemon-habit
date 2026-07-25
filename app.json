@@ -23,6 +23,7 @@
       "bundleIdentifier": "com.anonymous.pokemon-habit"
     },
     "android": {
+      "package": "com.anonymous.pokemonhabit",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
