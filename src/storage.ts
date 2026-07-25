@@ -11,6 +11,7 @@ export function defaultData(): AppData {
     soundOn: true,
     hapticsOn: true,
     version: CURRENT_VERSION,
+    updatedAt: 0,
   };
 }
 

@@ -9,6 +9,9 @@ appId: com.anonymous.pokemon-habit
     clearState: true
 - tapOn:
     text: "^Mục tiêu$"              # Habits tab
+- extendedWaitUntil:
+    visible: "Mục tiêu của bạn"     # let the Habits screen settle before the FAB tap
+    timeout: 10000
 - tapOn: "Thêm mục tiêu"            # FAB (accessibilityLabel)
 - extendedWaitUntil:
     visible: "Mục tiêu mới"         # editor sheet heading

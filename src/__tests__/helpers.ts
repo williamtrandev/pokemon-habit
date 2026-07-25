@@ -24,5 +24,5 @@ export function mkHabit(
 }
 
 export function mkData(habits: Habit[], lastActiveDate: string): AppData {
-  return { habits, lastActiveDate, soundOn: true, hapticsOn: true, version: 3 };
+  return { habits, lastActiveDate, soundOn: true, hapticsOn: true, version: 3, updatedAt: 0 };
 }

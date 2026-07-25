@@ -8,6 +8,7 @@ import { countDoneOnDate } from '../gameLogic';
 import { resolveForm, displayFormId, lineName, finalId, TOTAL_POKEMON } from '../species';
 import CreatureImage from '../components/CreatureImage';
 import NotificationCard from '../components/NotificationCard';
+import SyncCard from '../components/SyncCard';
 import TypeBadges from '../components/TypeBadges';
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
@@ -102,6 +103,8 @@ export default function HistoryScreen() {
 
       {/* Thông báo */}
       <NotificationCard reminderCount={data.habits.filter((h) => h.reminder).length} />
+
+      <SyncCard />
 
       {/* Cài đặt */}
       <View style={styles.card}>

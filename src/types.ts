@@ -39,6 +39,9 @@ export interface AppData {
   soundOn: boolean;
   hapticsOn: boolean;
   version: number;
+  // Đồng hồ logic cho đồng bộ cloud: mốc sửa gần nhất (ms). Dùng để last-write-wins
+  // khi merge giữa local và Supabase.
+  updatedAt: number;
 }
 
 export const CURRENT_VERSION = 3;

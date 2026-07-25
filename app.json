@@ -16,7 +16,24 @@
         }
       ],
       "expo-audio",
-      "expo-image"
+      "expo-image",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.YOUR-IOS-CLIENT-ID"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "extraPods": [
+              { "name": "GoogleUtilities", "modular_headers": true },
+              { "name": "RecaptchaInterop", "modular_headers": true }
+            ]
+          }
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,
