@@ -15,12 +15,19 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-// Nhãn ngắn cho nhắc nhở: "08:30" (hằng ngày) hoặc "mỗi 30 phút" / "mỗi 2 giờ".
+// "1 giờ", "45 phút", "1 giờ 30 phút".
+export function formatDuration(m: number): string {
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  if (h === 0) return `${min} phút`;
+  if (min === 0) return `${h} giờ`;
+  return `${h} giờ ${min} phút`;
+}
+
+// Nhãn ngắn cho nhắc nhở: "08:30" (hằng ngày) hoặc "mỗi 30 phút" / "mỗi 1 giờ 30 phút".
 export function reminderLabel(r: ReminderTime): string {
   if (r.kind === 'interval' && r.everyMinutes) {
-    const m = r.everyMinutes;
-    if (m % 60 === 0) return `mỗi ${m / 60} giờ`;
-    return `mỗi ${m} phút`;
+    return `mỗi ${formatDuration(r.everyMinutes)}`;
   }
   return `${pad2(r.hour)}:${pad2(r.minute)}`;
 }

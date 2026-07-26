@@ -16,7 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { Habit, ReminderTime } from '../types';
+import { Habit, ReminderTime, formatDuration } from '../types';
 import { Colors, radius, spacing } from '../theme';
 import { useTheme, useThemedStyles } from '../theme-context';
 import { ensurePermission } from '../notifications';
@@ -95,6 +95,8 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
     onSave({ title: title.trim(), reminder });
   };
 
+  const bumpMinutes = (delta: number) => setEveryMinutes((v) => Math.max(5, Math.min(720, v + delta)));
+
   const INTERVALS: { m: number; label: string }[] = [
     { m: 15, label: '15 phút' },
     { m: 30, label: '30 phút' },
@@ -164,7 +166,7 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
               <View style={styles.reminderHeader}>
                 <View style={styles.reminderTitleRow}>
                   <Ionicons name="notifications" size={18} color={colors.primarySoft} />
-                  <Text style={styles.sectionTitle}>Nhắc nhở hằng ngày</Text>
+                  <Text style={styles.sectionTitle}>Nhắc nhở</Text>
                 </View>
                 <Switch
                   value={remindOn}
@@ -205,6 +207,15 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
                   ) : (
                     <>
                       <Text style={styles.intervalHint}>Nhắc lại mỗi</Text>
+                      <View style={styles.stepper}>
+                        <Pressable onPress={() => bumpMinutes(-5)} hitSlop={8} style={styles.stepBtn}>
+                          <Ionicons name="remove" size={24} color={colors.primarySoft} />
+                        </Pressable>
+                        <Text style={styles.stepValue}>{formatDuration(everyMinutes)}</Text>
+                        <Pressable onPress={() => bumpMinutes(5)} hitSlop={8} style={styles.stepBtn}>
+                          <Ionicons name="add" size={24} color={colors.primarySoft} />
+                        </Pressable>
+                      </View>
                       <View style={styles.chips}>
                         {INTERVALS.map((it) => {
                           const on = everyMinutes === it.m;
@@ -326,6 +337,26 @@ const makeStyles = (colors: Colors) =>
     segText: { color: colors.textDim, fontWeight: '700', fontSize: 13.5 },
     segTextOn: { color: '#fff' },
     intervalHint: { color: colors.textDim, fontSize: 13, marginTop: spacing.md, marginBottom: spacing.sm },
+    stepper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: colors.bgSoft,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.sm,
+      marginBottom: spacing.md,
+    },
+    stepBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primary + '1F',
+    },
+    stepValue: { color: colors.text, fontSize: 18, fontWeight: '800' },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     chip: {
       paddingHorizontal: spacing.md,
