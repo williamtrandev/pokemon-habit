@@ -84,12 +84,12 @@ export default function CreatureCard({ habit, onToggle, onOpen }: Props) {
 
       <Pressable
         onPress={onToggle}
-        hitSlop={10}
+        hitSlop={12}
         accessibilityRole="button"
         accessibilityLabel={`${done ? 'Bỏ hoàn thành' : 'Hoàn thành'} ${habit.title}`}
         style={({ pressed }) => [styles.check, done && styles.checkDone, pressed && styles.checkPressed]}
       >
-        <Ionicons name="checkmark-sharp" size={20} color={done ? '#fff' : colors.textDim + '55'} />
+        <Ionicons name="checkmark-sharp" size={24} color={done ? '#fff' : colors.primarySoft} />
       </Pressable>
     </Pressable>
   );
@@ -123,7 +123,7 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
       overflow: 'hidden',
     },
-    mid: { flex: 1, marginLeft: spacing.md, marginRight: spacing.sm },
+    mid: { flex: 1, marginLeft: spacing.md, marginRight: spacing.md },
     title: { color: colors.text, fontSize: 16, fontWeight: '800' },
     formRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 2, marginBottom: 5 },
     metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginBottom: 6 },
@@ -153,14 +153,15 @@ const makeStyles = (colors: Colors) =>
     barRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
     barIcon: { width: 16, textAlign: 'center' },
     check: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
+      width: 46,
+      height: 46,
+      borderRadius: 23,
       borderWidth: 2,
-      borderColor: colors.border,
+      borderColor: colors.primary + '80',
+      backgroundColor: colors.primary + '1F',
       alignItems: 'center',
       justifyContent: 'center',
     },
     checkDone: { backgroundColor: colors.green, borderColor: colors.green },
-    checkPressed: { transform: [{ scale: 0.9 }] },
+    checkPressed: { transform: [{ scale: 0.88 }], opacity: 0.85 },
   });
