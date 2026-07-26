@@ -95,7 +95,7 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
     onSave({ title: title.trim(), reminder });
   };
 
-  const bumpMinutes = (delta: number) => setEveryMinutes((v) => Math.max(5, Math.min(720, v + delta)));
+  const bumpMinutes = (delta: number) => setEveryMinutes((v) => Math.max(1, Math.min(1439, v + delta)));
 
   const INTERVALS: { m: number; label: string }[] = [
     { m: 15, label: '15 phút' },
@@ -208,11 +208,11 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
                     <>
                       <Text style={styles.intervalHint}>Nhắc lại mỗi</Text>
                       <View style={styles.stepper}>
-                        <Pressable onPress={() => bumpMinutes(-5)} hitSlop={8} style={styles.stepBtn}>
+                        <Pressable onPress={() => bumpMinutes(-1)} onLongPress={() => bumpMinutes(-10)} hitSlop={8} style={styles.stepBtn}>
                           <Ionicons name="remove" size={24} color={colors.primarySoft} />
                         </Pressable>
                         <Text style={styles.stepValue}>{formatDuration(everyMinutes)}</Text>
-                        <Pressable onPress={() => bumpMinutes(5)} hitSlop={8} style={styles.stepBtn}>
+                        <Pressable onPress={() => bumpMinutes(1)} onLongPress={() => bumpMinutes(10)} hitSlop={8} style={styles.stepBtn}>
                           <Ionicons name="add" size={24} color={colors.primarySoft} />
                         </Pressable>
                       </View>

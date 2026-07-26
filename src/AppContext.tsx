@@ -141,63 +141,88 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [ready]);
 
   const addHabit = useCallback(async (input: { title: string; reminder: ReminderTime | null }) => {
-    const avoid = dataRef.current.habits.map((h) => finalId(h.creature));
-    const { line, color } = await fetchRandomLine(avoid);
-    const megas = await fetchMegas(line[line.length - 1].id);
-    let notificationId: string | null = null;
-    if (input.reminder) {
-      notificationId = await scheduleReminder(
-        `Đến giờ: ${input.title}`,
-        'Hoàn thành để nuôi lớn Pokémon của bạn nhé! 🥚',
-        input.reminder
-      );
-    }
+    const id = genId();
+    // Optimistic: hiện trứng NGAY, không chờ mạng. megas=[] để backfill không đụng vào.
     const habit: Habit = {
-      id: genId(),
+      id,
       title: input.title.trim(),
       reminder: input.reminder,
-      notificationId,
+      notificationId: null,
       createdAt: Date.now(),
       completions: {},
-      creature: { ...newCreature(line, color), megas, megaPick: 0 },
+      creature: { ...newCreature([], '#8B5CF6'), megas: [], megaPick: 0 },
     };
     setData((d) => touch({ ...d, habits: [...d.habits, habit] }));
+
+    // Nền: lấy loài + mega từ PokéAPI + đặt lịch nhắc, rồi cập nhật sinh vật.
+    (async () => {
+      try {
+        const avoid = dataRef.current.habits.map((h) => finalId(h.creature)).filter((x) => x > 0);
+        const { line, color } = await fetchRandomLine(avoid);
+        const megas = await fetchMegas(line[line.length - 1].id);
+        let notificationId: string | null = null;
+        if (input.reminder) {
+          notificationId = await scheduleReminder(
+            `Đến giờ: ${input.title}`,
+            'Hoàn thành để nuôi lớn Pokémon của bạn nhé! 🥚',
+            input.reminder
+          );
+        }
+        setData((d) => ({
+          ...d,
+          habits: d.habits.map((h) =>
+            h.id === id ? { ...h, notificationId, creature: { ...h.creature, line, color, megas } } : h
+          ),
+        }));
+      } catch (e) {
+        console.warn('addHabit background failed', e);
+      }
+    })();
   }, [touch]);
 
   const updateHabit = useCallback(
     async (id: string, input: { title: string; reminder: ReminderTime | null }) => {
       const existing = dataRef.current.habits.find((h) => h.id === id);
       if (!existing) return;
-      let notificationId = existing.notificationId;
+
+      // Cập nhật UI NGAY.
+      setData((d) =>
+        touch({
+          ...d,
+          habits: d.habits.map((h) =>
+            h.id === id ? { ...h, title: input.title.trim(), reminder: input.reminder } : h
+          ),
+        })
+      );
+
       const changed =
         existing.title !== input.title ||
         JSON.stringify(existing.reminder ?? null) !== JSON.stringify(input.reminder ?? null);
-      if (changed) {
+      if (!changed) return;
+
+      // Nền: đổi lịch nhắc.
+      (async () => {
         await cancelReminder(existing.notificationId);
-        notificationId = input.reminder
+        const notificationId = input.reminder
           ? await scheduleReminder(
               `Đến giờ: ${input.title}`,
               'Hoàn thành để nuôi lớn Pokémon của bạn nhé! 🥚',
               input.reminder
             )
           : null;
-      }
-      setData((d) =>
-        touch({
+        setData((d) => ({
           ...d,
-          habits: d.habits.map((h) =>
-            h.id === id ? { ...h, title: input.title.trim(), reminder: input.reminder, notificationId } : h
-          ),
-        })
-      );
+          habits: d.habits.map((h) => (h.id === id ? { ...h, notificationId } : h)),
+        }));
+      })();
     },
     [touch]
   );
 
   const deleteHabit = useCallback(async (id: string) => {
     const existing = dataRef.current.habits.find((h) => h.id === id);
-    if (existing?.notificationId) await cancelReminder(existing.notificationId);
-    setData((d) => touch({ ...d, habits: d.habits.filter((h) => h.id !== id) }));
+    setData((d) => touch({ ...d, habits: d.habits.filter((h) => h.id !== id) })); // ngay
+    if (existing?.notificationId) void cancelReminder(existing.notificationId); // nền
   }, [touch]);
 
   const toggleToday = useCallback((id: string) => {
