@@ -17,7 +17,7 @@ appId: com.anonymous.pokemon-habit
     timeout: 10000
 - tapOn: "VD: Uống 2 lít nước"
 - inputText: "Uống nước E2E"
-- tapOn: "Lưu"
+- tapOn: "Tạo mục tiêu"
 - extendedWaitUntil:
     visible: ".*Uống nước E2E.*"     # merged row node — match title as substring
     timeout: 25000
