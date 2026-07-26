@@ -36,8 +36,10 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
   const styles = useThemedStyles(makeStyles);
   const [title, setTitle] = useState('');
   const [remindOn, setRemindOn] = useState(false);
+  const [mode, setMode] = useState<'daily' | 'interval'>('daily');
   const [hour, setHour] = useState(8);
   const [minute, setMinute] = useState(0);
+  const [everyMinutes, setEveryMinutes] = useState(60);
   const [permDenied, setPermDenied] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -59,9 +61,12 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
   useEffect(() => {
     if (!visible) return;
     setTitle(initial?.title ?? '');
-    setRemindOn(!!initial?.reminder);
-    setHour(initial?.reminder?.hour ?? 8);
-    setMinute(initial?.reminder?.minute ?? 0);
+    const r = initial?.reminder;
+    setRemindOn(!!r);
+    setMode(r?.kind === 'interval' ? 'interval' : 'daily');
+    setHour(r?.hour ?? 8);
+    setMinute(r?.minute ?? 0);
+    setEveryMinutes(r?.everyMinutes ?? 60);
     setPermDenied(false);
     setFocused(false);
   }, [visible, initial]);
@@ -80,8 +85,23 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
 
   const save = () => {
     if (!canSave) return;
-    onSave({ title: title.trim(), reminder: remindOn ? { hour, minute } : null });
+    let reminder: ReminderTime | null = null;
+    if (remindOn) {
+      reminder =
+        mode === 'interval'
+          ? { kind: 'interval', hour: 0, minute: 0, everyMinutes }
+          : { kind: 'daily', hour, minute };
+    }
+    onSave({ title: title.trim(), reminder });
   };
+
+  const INTERVALS: { m: number; label: string }[] = [
+    { m: 15, label: '15 phút' },
+    { m: 30, label: '30 phút' },
+    { m: 60, label: '1 giờ' },
+    { m: 120, label: '2 giờ' },
+    { m: 180, label: '3 giờ' },
+  ];
 
   // Giờ:phút <-> Date cho native picker (chọn tới từng phút).
   const timeValue = useMemo(() => {
@@ -156,18 +176,52 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
 
               {remindOn && (
                 <>
-                  <View style={styles.pickerWrap}>
-                    <DateTimePicker
-                      value={timeValue}
-                      mode="time"
-                      display="spinner"
-                      minuteInterval={1}
-                      onChange={onTimeChange}
-                      textColor={colors.text}
-                      themeVariant={scheme === 'dark' ? 'dark' : 'light'}
-                      style={styles.picker}
-                    />
+                  <View style={styles.segment}>
+                    {(['daily', 'interval'] as const).map((mk) => {
+                      const on = mode === mk;
+                      return (
+                        <Pressable key={mk} onPress={() => setMode(mk)} style={[styles.segBtn, on && styles.segBtnOn]}>
+                          <Text style={[styles.segText, on && styles.segTextOn]}>
+                            {mk === 'daily' ? 'Hằng ngày' : 'Lặp lại'}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
+
+                  {mode === 'daily' ? (
+                    <View style={styles.pickerWrap}>
+                      <DateTimePicker
+                        value={timeValue}
+                        mode="time"
+                        display="spinner"
+                        minuteInterval={1}
+                        onChange={onTimeChange}
+                        textColor={colors.text}
+                        themeVariant={scheme === 'dark' ? 'dark' : 'light'}
+                        style={styles.picker}
+                      />
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.intervalHint}>Nhắc lại mỗi</Text>
+                      <View style={styles.chips}>
+                        {INTERVALS.map((it) => {
+                          const on = everyMinutes === it.m;
+                          return (
+                            <Pressable
+                              key={it.m}
+                              onPress={() => setEveryMinutes(it.m)}
+                              style={[styles.chip, on && styles.chipOn]}
+                            >
+                              <Text style={[styles.chipText, on && styles.chipTextOn]}>{it.label}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
+
                   {permDenied && (
                     <Text style={styles.permWarn}>
                       ⚠️ Chưa có quyền thông báo. Vào Cài đặt hệ thống để bật, nếu không nhắc nhở sẽ không hiện.
@@ -258,6 +312,32 @@ const makeStyles = (colors: Colors) =>
     reminderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     reminderTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     sectionTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
+    segment: {
+      flexDirection: 'row',
+      backgroundColor: colors.bgSoft,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 3,
+      marginTop: spacing.md,
+    },
+    segBtn: { flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md - 3, alignItems: 'center' },
+    segBtnOn: { backgroundColor: colors.primary },
+    segText: { color: colors.textDim, fontWeight: '700', fontSize: 13.5 },
+    segTextOn: { color: '#fff' },
+    intervalHint: { color: colors.textDim, fontSize: 13, marginTop: spacing.md, marginBottom: spacing.sm },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    chip: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.bgSoft,
+    },
+    chipOn: { backgroundColor: colors.primary + '22', borderColor: colors.primary },
+    chipText: { color: colors.textDim, fontWeight: '700', fontSize: 13 },
+    chipTextOn: { color: colors.primarySoft },
     pickerWrap: { alignItems: 'center', marginTop: spacing.xs },
     picker: { alignSelf: 'center', height: 160, width: 220 },
     permWarn: { color: colors.accent, fontSize: 12, lineHeight: 17, marginTop: spacing.sm, textAlign: 'center', paddingHorizontal: spacing.sm },

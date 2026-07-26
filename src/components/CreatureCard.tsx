@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Habit, healthState } from '../types';
+import { Habit, healthState, reminderLabel } from '../types';
 import { resolveForm, evoProgress, displayFormId } from '../species';
 import { habitStreak, isDoneOn } from '../gameLogic';
 import { todayStr } from '../date';
@@ -64,9 +64,7 @@ export default function CreatureCard({ habit, onToggle, onOpen }: Props) {
             {habit.reminder && (
               <View style={styles.remindPill}>
                 <Ionicons name="alarm-outline" size={11} color={colors.primarySoft} />
-                <Text style={styles.remindText}>
-                  {String(habit.reminder.hour).padStart(2, '0')}:{String(habit.reminder.minute).padStart(2, '0')}
-                </Text>
+                <Text style={styles.remindText}>{reminderLabel(habit.reminder)}</Text>
               </View>
             )}
           </View>

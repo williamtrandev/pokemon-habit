@@ -6,6 +6,23 @@ export type ISODate = string;
 export interface ReminderTime {
   hour: number;
   minute: number;
+  // undefined = 'daily' (tương thích dữ liệu cũ). 'interval' = lặp mỗi everyMinutes phút.
+  kind?: 'daily' | 'interval';
+  everyMinutes?: number;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+// Nhãn ngắn cho nhắc nhở: "08:30" (hằng ngày) hoặc "mỗi 30 phút" / "mỗi 2 giờ".
+export function reminderLabel(r: ReminderTime): string {
+  if (r.kind === 'interval' && r.everyMinutes) {
+    const m = r.everyMinutes;
+    if (m % 60 === 0) return `mỗi ${m / 60} giờ`;
+    return `mỗi ${m} phút`;
+  }
+  return `${pad2(r.hour)}:${pad2(r.minute)}`;
 }
 
 // Sinh vật gắn với một mục tiêu. Dòng tiến hoá (line) được lấy ngẫu nhiên từ PokéAPI khi tạo.

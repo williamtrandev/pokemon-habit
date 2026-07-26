@@ -63,7 +63,8 @@ export async function ensurePermission(): Promise<boolean> {
   }
 }
 
-// Đặt lịch nhắc lặp lại hằng ngày. Trả về id để có thể huỷ, hoặc null.
+// Đặt lịch nhắc: hằng ngày lúc HH:MM, hoặc lặp mỗi N phút (interval) trong ngày.
+// Trả về id để có thể huỷ, hoặc null.
 export async function scheduleReminder(
   title: string,
   body: string,
@@ -73,14 +74,25 @@ export async function scheduleReminder(
   try {
     const ok = await ensurePermission();
     if (!ok) return null;
+
+    const trigger =
+      time.kind === 'interval' && time.everyMinutes
+        ? {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL as const,
+            seconds: Math.max(60, Math.round(time.everyMinutes * 60)),
+            repeats: true,
+            channelId: REMINDER_CHANNEL,
+          }
+        : {
+            type: Notifications.SchedulableTriggerInputTypes.DAILY as const,
+            hour: time.hour,
+            minute: time.minute,
+            channelId: REMINDER_CHANNEL,
+          };
+
     const id = await Notifications.scheduleNotificationAsync({
       content: { title, body },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DAILY,
-        hour: time.hour,
-        minute: time.minute,
-        channelId: REMINDER_CHANNEL,
-      },
+      trigger,
     });
     return id;
   } catch (e) {

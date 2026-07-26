@@ -170,9 +170,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!existing) return;
       let notificationId = existing.notificationId;
       const changed =
-        existing.reminder?.hour !== input.reminder?.hour ||
-        existing.reminder?.minute !== input.reminder?.minute ||
-        existing.title !== input.title;
+        existing.title !== input.title ||
+        JSON.stringify(existing.reminder ?? null) !== JSON.stringify(input.reminder ?? null);
       if (changed) {
         await cancelReminder(existing.notificationId);
         notificationId = input.reminder

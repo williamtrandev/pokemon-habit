@@ -3,14 +3,14 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useApp } from '../AppContext';
 import HabitEditor from '../components/HabitEditor';
 import CreatureView from '../components/CreatureView';
-import { Habit, ReminderTime } from '../types';
+import { Habit, ReminderTime, reminderLabel } from '../types';
 import { resolveForm } from '../species';
 import { Colors, radius, spacing, TAB_BAR_SPACE } from '../theme';
 import { useThemedStyles } from '../theme-context';
 
 function fmtTime(r: ReminderTime | null): string {
   if (!r) return 'Không nhắc';
-  return `⏰ ${String(r.hour).padStart(2, '0')}:${String(r.minute).padStart(2, '0')}`;
+  return `⏰ ${reminderLabel(r)}`;
 }
 
 export default function HabitsScreen() {
