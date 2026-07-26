@@ -9,6 +9,7 @@ import HabitsScreen from './src/screens/HabitsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import CreatureView from './src/components/CreatureView';
 import TabBar, { TabItem } from './src/components/TabBar';
+import Pokeball from './src/components/Pokeball';
 import { resolveForm, MEGA_STAGE } from './src/species';
 import { Colors, spacing } from './src/theme';
 
@@ -28,8 +29,8 @@ function Shell() {
   if (!ready) {
     return (
       <View style={styles.loading}>
-        <Text style={styles.loadingEmoji}>🥚</Text>
-        <Text style={styles.loadingText}>Đang ấp trứng...</Text>
+        <Pokeball size={92} spin />
+        <Text style={styles.loadingText}>Đang tải Pokédex...</Text>
       </View>
     );
   }

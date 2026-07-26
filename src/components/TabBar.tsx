@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, Platform, LayoutAnimation, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, radius, spacing } from '../theme';
 import { useTheme, useThemedStyles } from '../theme-context';
 
@@ -21,8 +22,11 @@ interface Props<T extends string> {
   onChange: (key: T) => void;
 }
 
-// Thanh điều hướng nổi dạng viên thuốc: tab đang chọn phình ra thành pill primary
-// kèm nhãn; tab còn lại chỉ hiện icon. Chuyển tab có hiệu ứng phình mượt.
+// Đỏ Poké Ball cho tab đang chọn — nổi bật trên nền tím của app, đúng chất Pokémon.
+const BALL_RED: [string, string] = ['#FF5A5A', '#E4222B'];
+
+// Thanh điều hướng nổi: tab đang chọn phình thành viên gradient đỏ kèm nhãn;
+// tab còn lại chỉ hiện icon mờ. Chuyển tab phình mượt.
 export default function TabBar<T extends string>({ tabs, active, onChange }: Props<T>) {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
@@ -30,7 +34,7 @@ export default function TabBar<T extends string>({ tabs, active, onChange }: Pro
   const press = (key: T) => {
     if (key === active) return;
     LayoutAnimation.configureNext(
-      LayoutAnimation.create(200, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity)
+      LayoutAnimation.create(220, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.scaleXY)
     );
     onChange(key);
   };
@@ -44,17 +48,27 @@ export default function TabBar<T extends string>({ tabs, active, onChange }: Pro
             <Pressable
               key={t.key}
               onPress={() => press(t.key)}
-              style={[styles.tab, on && styles.tabActive]}
               hitSlop={6}
               accessibilityRole="tab"
               accessibilityState={{ selected: on }}
               accessibilityLabel={t.label}
             >
-              <Ionicons name={on ? t.icon : t.iconOutline} size={22} color={on ? '#fff' : colors.textDim} />
-              {on && (
-                <Text style={styles.label} numberOfLines={1}>
-                  {t.label}
-                </Text>
+              {on ? (
+                <LinearGradient
+                  colors={BALL_RED}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.tab, styles.tabActive]}
+                >
+                  <Ionicons name={t.icon} size={20} color="#fff" />
+                  <Text style={styles.label} numberOfLines={1}>
+                    {t.label}
+                  </Text>
+                </LinearGradient>
+              ) : (
+                <View style={styles.tab}>
+                  <Ionicons name={t.iconOutline} size={23} color={colors.textDim} />
+                </View>
               )}
             </Pressable>
           );
@@ -84,24 +98,28 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.border,
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.sm,
-      shadowColor: colors.primary,
-      shadowOpacity: 0.22,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
+      shadowColor: '#000',
+      shadowOpacity: 0.28,
+      shadowRadius: 20,
+      shadowOffset: { width: 0, height: 10 },
       elevation: 12,
     },
     tab: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      height: 46,
-      minWidth: 46,
+      height: 48,
+      minWidth: 48,
       paddingHorizontal: spacing.md,
       borderRadius: radius.pill,
     },
     tabActive: {
-      backgroundColor: colors.primary,
       paddingHorizontal: spacing.lg,
+      shadowColor: '#E4222B',
+      shadowOpacity: 0.5,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 8,
     },
     label: {
       color: '#fff',
