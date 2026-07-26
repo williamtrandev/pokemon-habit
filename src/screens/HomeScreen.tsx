@@ -9,6 +9,7 @@ import { Colors, radius, spacing, TAB_BAR_SPACE } from '../theme';
 import { useThemedStyles } from '../theme-context';
 import { todayStr } from '../date';
 import { countDoneToday } from '../gameLogic';
+import { feedbackTap } from '../feedback';
 
 function greetingForNow(): string {
   const h = new Date().getHours();
@@ -53,7 +54,7 @@ export default function HomeScreen({ onGoHabits }: { onGoHabits: () => void }) {
       )}
 
       {total === 0 ? (
-        <Pressable onPress={onGoHabits} style={styles.empty}>
+        <Pressable onPress={() => { feedbackTap(); onGoHabits(); }} style={styles.empty}>
           <Text style={styles.emptyEmoji}>🥚</Text>
           <Text style={styles.emptyTitle}>Chưa có Pokémon nào</Text>
           <Text style={styles.emptyText}>Thêm mục tiêu đầu tiên để nhận một quả trứng!</Text>

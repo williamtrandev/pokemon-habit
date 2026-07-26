@@ -32,6 +32,7 @@ interface AppContextValue {
   setMegaPick: (id: string, index: number) => void;
   setSound: (on: boolean) => void;
   setHaptics: (on: boolean) => void;
+  setMusic: (on: boolean) => void;
   resetAll: () => Promise<void>;
   // Cloud sync (Google + Supabase). authReady=false khi chưa cấu hình key.
   authReady: boolean;
@@ -67,7 +68,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setupChannel();
       const loaded = await loadData();
       const decayed = applyDailyDecay(loaded);
-      configureFeedback({ sound: decayed.soundOn, haptics: decayed.hapticsOn });
+      configureFeedback({ sound: decayed.soundOn, haptics: decayed.hapticsOn, music: decayed.musicOn });
       setData(decayed);
       setReady(true);
       if (decayed !== loaded) saveData(decayed);
@@ -263,6 +264,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setData((d) => touch({ ...d, hapticsOn: on }));
   }, [touch]);
 
+  const setMusic = useCallback((on: boolean) => {
+    configureFeedback({ music: on });
+    setData((d) => touch({ ...d, musicOn: on }));
+  }, [touch]);
+
   const resetAll = useCallback(async () => {
     for (const h of dataRef.current.habits) {
       if (h.notificationId) await cancelReminder(h.notificationId);
@@ -302,6 +308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setMegaPick,
         setSound,
         setHaptics,
+        setMusic,
         resetAll,
         authReady,
         session,

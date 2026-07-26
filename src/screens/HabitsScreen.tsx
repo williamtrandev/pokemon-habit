@@ -5,6 +5,7 @@ import HabitEditor from '../components/HabitEditor';
 import CreatureView from '../components/CreatureView';
 import { Habit, ReminderTime, reminderLabel } from '../types';
 import { resolveForm } from '../species';
+import { feedbackTap } from '../feedback';
 import { Colors, radius, spacing, TAB_BAR_SPACE } from '../theme';
 import { useThemedStyles } from '../theme-context';
 
@@ -19,8 +20,8 @@ export default function HabitsScreen() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
 
-  const openNew = () => { setEditing(null); setEditorOpen(true); };
-  const openEdit = (h: Habit) => { setEditing(h); setEditorOpen(true); };
+  const openNew = () => { feedbackTap(); setEditing(null); setEditorOpen(true); };
+  const openEdit = (h: Habit) => { feedbackTap(); setEditing(h); setEditorOpen(true); };
 
   const handleSave = (input: { title: string; reminder: ReminderTime | null }) => {
     if (editing) updateHabit(editing.id, input);

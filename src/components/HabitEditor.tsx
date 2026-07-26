@@ -20,6 +20,7 @@ import { Habit, ReminderTime, formatDuration } from '../types';
 import { Colors, radius, spacing } from '../theme';
 import { useTheme, useThemedStyles } from '../theme-context';
 import { ensurePermission } from '../notifications';
+import { feedbackTap } from '../feedback';
 
 interface Props {
   visible: boolean;
@@ -85,6 +86,7 @@ export default function HabitEditor({ visible, initial, onClose, onSave, onDelet
 
   const save = () => {
     if (!canSave) return;
+    feedbackTap();
     let reminder: ReminderTime | null = null;
     if (remindOn) {
       reminder =

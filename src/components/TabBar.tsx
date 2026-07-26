@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, radius, spacing } from '../theme';
 import { useTheme, useThemedStyles } from '../theme-context';
+import { feedbackTap } from '../feedback';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -33,6 +34,7 @@ export default function TabBar<T extends string>({ tabs, active, onChange }: Pro
 
   const press = (key: T) => {
     if (key === active) return;
+    feedbackTap();
     LayoutAnimation.configureNext(
       LayoutAnimation.create(220, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.scaleXY)
     );

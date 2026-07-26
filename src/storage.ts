@@ -10,6 +10,7 @@ export function defaultData(): AppData {
     lastActiveDate: todayStr(),
     soundOn: true,
     hapticsOn: true,
+    musicOn: false,
     version: CURRENT_VERSION,
     updatedAt: 0,
   };

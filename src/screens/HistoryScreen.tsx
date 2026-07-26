@@ -18,7 +18,7 @@ const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
 ];
 
 export default function HistoryScreen() {
-  const { data, setSound, setHaptics, resetAll } = useApp();
+  const { data, setSound, setHaptics, setMusic, resetAll } = useApp();
   const { colors, mode, setMode } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const days = useMemo(() => lastNDays(14), []);
@@ -133,6 +133,10 @@ export default function HistoryScreen() {
         <View style={styles.settingRow}>
           <Text style={styles.settingLabel}>📳 Rung (haptics)</Text>
           <Switch value={data.hapticsOn} onValueChange={setHaptics} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#fff" />
+        </View>
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>🎵 Nhạc nền</Text>
+          <Switch value={data.musicOn} onValueChange={setMusic} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#fff" />
         </View>
         <Pressable style={styles.resetBtn} onPress={confirmReset}>
           <Text style={styles.resetBtnText}>Làm lại từ đầu</Text>

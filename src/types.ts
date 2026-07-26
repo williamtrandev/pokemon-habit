@@ -62,6 +62,7 @@ export interface AppData {
   lastActiveDate: ISODate;
   soundOn: boolean;
   hapticsOn: boolean;
+  musicOn: boolean;
   version: number;
   // Đồng hồ logic cho đồng bộ cloud: mốc sửa gần nhất (ms). Dùng để last-write-wins
   // khi merge giữa local và Supabase.
