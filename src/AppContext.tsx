@@ -148,7 +148,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (input.reminder) {
       notificationId = await scheduleReminder(
         `Đến giờ: ${input.title}`,
-        'Hoàn thành để nuôi lớn sinh vật của bạn nhé! 🥚',
+        'Hoàn thành để nuôi lớn Pokémon của bạn nhé! 🥚',
         input.reminder
       );
     }
@@ -178,7 +178,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         notificationId = input.reminder
           ? await scheduleReminder(
               `Đến giờ: ${input.title}`,
-              'Hoàn thành để nuôi lớn sinh vật của bạn nhé! 🥚',
+              'Hoàn thành để nuôi lớn Pokémon của bạn nhé! 🥚',
               input.reminder
             )
           : null;

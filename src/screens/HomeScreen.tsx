@@ -40,7 +40,7 @@ export default function HomeScreen({ onGoHabits }: { onGoHabits: () => void }) {
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={styles.greeting}>{greeting} 👋</Text>
-          <Text style={styles.headerTitle}>Đàn sinh vật</Text>
+          <Text style={styles.headerTitle}>Pokémon của tôi</Text>
           <Text style={styles.date} numberOfLines={1}>{dateLabel}</Text>
         </View>
         {total > 0 && <ProgressRing done={done} total={total} />}
@@ -55,7 +55,7 @@ export default function HomeScreen({ onGoHabits }: { onGoHabits: () => void }) {
       {total === 0 ? (
         <Pressable onPress={onGoHabits} style={styles.empty}>
           <Text style={styles.emptyEmoji}>🥚</Text>
-          <Text style={styles.emptyTitle}>Chưa có sinh vật nào</Text>
+          <Text style={styles.emptyTitle}>Chưa có Pokémon nào</Text>
           <Text style={styles.emptyText}>Thêm mục tiêu đầu tiên để nhận một quả trứng!</Text>
           <View style={styles.emptyBtn}>
             <Text style={styles.emptyBtnText}>+ Thêm mục tiêu</Text>

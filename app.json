@@ -33,6 +33,14 @@
             ]
           }
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0F0B26",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180
+        }
       ]
     ],
     "ios": {
@@ -42,9 +50,8 @@
     "android": {
       "package": "com.anonymous.pokemonhabit",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#241B54",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,

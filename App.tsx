@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Platform, StatusBar, Animated } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, Platform, StatusBar, Animated, Easing } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from './src/AppContext';
 import { ThemeProvider, useTheme, useThemedStyles } from './src/theme-context';
@@ -18,13 +18,25 @@ type Tab = 'home' | 'habits' | 'history';
 const TABS: TabItem<Tab>[] = [
   { key: 'home', label: 'Nuôi', icon: 'paw', iconOutline: 'paw-outline' },
   { key: 'habits', label: 'Mục tiêu', icon: 'flag', iconOutline: 'flag-outline' },
-  { key: 'history', label: 'Bộ sưu tập', icon: 'albums', iconOutline: 'albums-outline' },
+  { key: 'history', label: 'Pokédex', icon: 'albums', iconOutline: 'albums-outline' },
 ];
 
 function Shell() {
   const { ready } = useApp();
   const styles = useThemedStyles(makeStyles);
   const [tab, setTab] = useState<Tab>('home');
+
+  // Chuyển tab: màn mới mờ + trượt nhẹ lên, mượt hơn cắt phụt.
+  const anim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    anim.setValue(0);
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [tab]);
 
   if (!ready) {
     return (
@@ -37,11 +49,16 @@ function Shell() {
 
   return (
     <View style={styles.body}>
-      <View style={styles.screen}>
+      <Animated.View
+        style={[
+          styles.screen,
+          { opacity: anim, transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] },
+        ]}
+      >
         {tab === 'home' && <HomeScreen onGoHabits={() => setTab('habits')} />}
         {tab === 'habits' && <HabitsScreen />}
         {tab === 'history' && <HistoryScreen />}
-      </View>
+      </Animated.View>
 
       <TabBar tabs={TABS} active={tab} onChange={setTab} />
 

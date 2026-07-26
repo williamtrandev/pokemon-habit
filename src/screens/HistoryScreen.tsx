@@ -43,7 +43,7 @@ export default function HistoryScreen() {
   const distinct = new Set(data.habits.map((h) => finalId(h.creature))).size;
 
   const confirmReset = () => {
-    Alert.alert('Làm lại từ đầu?', 'Toàn bộ mục tiêu và sinh vật sẽ bị xoá. Không thể hoàn tác.', [
+    Alert.alert('Làm lại từ đầu?', 'Toàn bộ mục tiêu và Pokémon sẽ bị xoá. Không thể hoàn tác.', [
       { text: 'Huỷ', style: 'cancel' },
       { text: 'Xoá hết', style: 'destructive', onPress: () => resetAll() },
     ]);
@@ -51,12 +51,12 @@ export default function HistoryScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>Bộ sưu tập</Text>
+      <Text style={styles.title}>Pokédex</Text>
 
       {/* Đàn Pokémon của bạn */}
       <View style={styles.card}>
         <View style={styles.cardHead}>
-          <Text style={styles.cardTitle}>Đàn của bạn</Text>
+          <Text style={styles.cardTitle}>Pokédex của bạn</Text>
           <Text style={styles.cardCount}>{distinct}/{TOTAL_POKEMON}</Text>
         </View>
         {collected.length === 0 ? (
