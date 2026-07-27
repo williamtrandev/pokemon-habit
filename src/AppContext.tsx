@@ -8,8 +8,8 @@ import { fetchRandomLine, finalId, MegaForm } from './species';
 import { fetchMegas } from './megaForms';
 import { todayStr } from './date';
 import type { Session } from '@supabase/supabase-js';
-import { authReady, getSession, onAuthChange, signInWithGoogle, signOut as authSignOut } from './lib/auth';
-import { queuePush, flushPush, reconcile } from './lib/sync';
+import { authReady, ensureSession, onAuthChange } from './lib/auth';
+import { queuePush, reconcile } from './lib/sync';
 
 export type SyncStatus = 'off' | 'idle' | 'syncing' | 'error';
 
@@ -34,12 +34,10 @@ interface AppContextValue {
   setHaptics: (on: boolean) => void;
   setMusic: (on: boolean) => void;
   resetAll: () => Promise<void>;
-  // Cloud sync (Google + Supabase). authReady=false khi chưa cấu hình key.
+  // Đồng bộ ẩn danh lên Supabase. authReady=false khi chưa cấu hình key.
   authReady: boolean;
   session: Session | null;
   syncStatus: SyncStatus;
-  signIn: () => Promise<void>;
-  signOut: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -82,12 +80,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (s) queuePush(s.user.id, data); // write-behind: đẩy cloud nền, không chặn UI
   }, [data, ready]);
 
-  // Theo dõi phiên đăng nhập (khôi phục phiên cũ + lắng nghe thay đổi).
+  // Đồng bộ ẩn danh: tự tạo/khôi phục phiên, không cần đăng nhập.
   useEffect(() => {
     if (!authReady) return;
     let unsub = () => {};
     (async () => {
-      setSession(await getSession());
+      const s = await ensureSession();
+      setSession(s);
       unsub = onAuthChange((next) => setSession(next));
     })();
     return () => unsub();
@@ -277,23 +276,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setData(touch(defaultData()));
   }, [touch]);
 
-  // ----- Cloud sync actions -----
-  const signIn = useCallback(async () => {
-    setSyncStatus('syncing');
-    try {
-      await signInWithGoogle(); // phiên cập nhật qua onAuthChange -> effect reconcile
-    } catch (e) {
-      setSyncStatus('error');
-      throw e;
-    }
-  }, []);
-
-  const signOut = useCallback(async () => {
-    await flushPush(); // đẩy nốt thay đổi cuối trước khi mất phiên
-    await authSignOut();
-    setSyncStatus(authReady ? 'idle' : 'off');
-  }, []);
-
   return (
     <AppContext.Provider
       value={{
@@ -313,8 +295,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         authReady,
         session,
         syncStatus,
-        signIn,
-        signOut,
       }}
     >
       {children}
