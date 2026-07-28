@@ -36,7 +36,7 @@ export default function TypeBadges({ formId, size = 'md' }: Props) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  row: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'center' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

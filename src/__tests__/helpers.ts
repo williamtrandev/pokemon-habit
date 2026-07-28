@@ -1,28 +1,36 @@
-import { newCreature } from '../gameLogic';
-import type { AppData, Creature, Habit } from '../types';
-
-export const LINE = [
-  { id: 1, name: 'Bulbasaur' },
-  { id: 2, name: 'Ivysaur' },
-  { id: 3, name: 'Venusaur' },
-];
+import type { AppData, Habit, ReminderTime } from '../types';
 
 export function mkHabit(
   id: string,
   completions: Record<string, boolean> = {},
-  creature: Partial<Creature> = {}
+  reminder: ReminderTime | null = null
 ): Habit {
   return {
     id,
     title: 'H' + id,
-    reminder: null,
+    reminder,
     notificationId: null,
     createdAt: 0,
     completions,
-    creature: { ...newCreature(LINE, '#22C55E'), ...creature },
   };
 }
 
 export function mkData(habits: Habit[], lastActiveDate: string): AppData {
-  return { habits, lastActiveDate, soundOn: true, hapticsOn: true, musicOn: false, version: 3, updatedAt: 0 };
+  return {
+    habits,
+    lastActiveDate,
+    soundOn: true,
+    hapticsOn: true,
+    musicOn: false,
+    version: 4,
+    updatedAt: 0,
+    collection: {},
+    party: [],
+    candy: 0,
+    pendingEggs: [],
+    streakClaimed: [],
+    hatchMeter: 0,
+    hatchDay: lastActiveDate,
+    hatchDayAdded: 0,
+  };
 }

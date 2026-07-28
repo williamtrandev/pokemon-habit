@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useApp } from '../AppContext';
+import { Ionicons } from '@expo/vector-icons';
 import HabitEditor from '../components/HabitEditor';
-import CreatureView from '../components/CreatureView';
 import { Habit, ReminderTime, reminderLabel } from '../types';
-import { resolveForm } from '../species';
 import { feedbackTap } from '../feedback';
+import { useTheme } from '../theme-context';
 import { Colors, radius, spacing, TAB_BAR_SPACE } from '../theme';
 import { useThemedStyles } from '../theme-context';
 
@@ -16,6 +16,7 @@ function fmtTime(r: ReminderTime | null): string {
 
 export default function HabitsScreen() {
   const { data, addHabit, updateHabit, deleteHabit } = useApp();
+  const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
@@ -45,19 +46,18 @@ export default function HabitsScreen() {
             <Text style={styles.emptyText}>Chưa có mục tiêu nào. Nhấn nút + để thêm.</Text>
           </View>
         ) : (
-          data.habits.map((h) => {
-            const form = resolveForm(h.creature);
-            return (
-              <Pressable key={h.id} onPress={() => openEdit(h)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-                <CreatureView creature={h.creature} size={48} animate={false} />
-                <View style={styles.mid}>
-                  <Text style={styles.rowTitle} numberOfLines={1}>{h.title}</Text>
-                  <Text style={styles.rowSub}>{form.stage === 0 ? 'Trứng' : form.name} · {fmtTime(h.reminder)}</Text>
-                </View>
-                <Text style={styles.chev}>›</Text>
-              </Pressable>
-            );
-          })
+          data.habits.map((h) => (
+            <Pressable key={h.id} onPress={() => openEdit(h)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+              <View style={styles.icon}>
+                <Ionicons name="flag" size={20} color={colors.primarySoft} />
+              </View>
+              <View style={styles.mid}>
+                <Text style={styles.rowTitle} numberOfLines={1}>{h.title}</Text>
+                <Text style={styles.rowSub}>{fmtTime(h.reminder)}</Text>
+              </View>
+              <Text style={styles.chev}>›</Text>
+            </Pressable>
+          ))
         )}
       </ScrollView>
 
@@ -86,6 +86,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   emptyText: { color: colors.textDim, fontSize: 14, textAlign: 'center', marginTop: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.border },
   pressed: { opacity: 0.75 },
+  icon: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.primary + '1A', alignItems: 'center', justifyContent: 'center' },
   mid: { flex: 1, marginLeft: spacing.md },
   rowTitle: { color: colors.text, fontSize: 16, fontWeight: '700' },
   rowSub: { color: colors.textDim, fontSize: 12, marginTop: 2 },

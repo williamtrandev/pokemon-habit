@@ -3,10 +3,11 @@ import {
   STAGE_XP, MEGA_XP, MEGA_STAGE, stageForXp, formIdAt, formNameAt,
   resolveForm, hasMega, megaReady, activeMega, displayFormId, evoProgress, colorForId,
 } from '../species';
-import { newCreature } from '../gameLogic';
 import type { Creature } from '../types';
 
 const LINE = [{ id: 1, name: 'Bulbasaur' }, { id: 2, name: 'Ivysaur' }, { id: 3, name: 'Venusaur' }];
+const newCreature = (line: Creature['line'], color: string): Creature =>
+  ({ line, color, xp: 0, vitality: 85, fainted: false, branch: null, bestStreak: 0, everFinal: false });
 const base = (over: Partial<Creature> = {}): Creature => ({ ...newCreature(LINE, '#000'), ...over });
 
 describe('species stage/xp', () => {

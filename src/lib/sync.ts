@@ -2,34 +2,8 @@ import { AppData } from '../types';
 import { pullState, pushState } from './cloudState';
 
 // Chiến lược: local-first. UI luôn đọc/ghi AsyncStorage tức thì; cloud là bản sao
-// đẩy NỀN (write-behind, debounce) để không chặn tương tác. Merge dùng
-// last-write-wins theo AppData.updatedAt (mỗi user một khối JSON).
-
-let timer: ReturnType<typeof setTimeout> | null = null;
-let pending: { userId: string; data: AppData } | null = null;
-
-// Hẹn đẩy lên cloud sau `delayMs` (gộp nhiều thay đổi liên tiếp thành một lần push).
-export function queuePush(userId: string, data: AppData, delayMs = 2000): void {
-  pending = { userId, data };
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    const p = pending;
-    timer = null;
-    pending = null;
-    if (p) void pushState(p.userId, p.data);
-  }, delayMs);
-}
-
-// Đẩy ngay khối đang chờ (gọi khi app nền/đăng xuất để không mất thay đổi cuối).
-export async function flushPush(): Promise<void> {
-  if (timer) {
-    clearTimeout(timer);
-    timer = null;
-  }
-  const p = pending;
-  pending = null;
-  if (p) await pushState(p.userId, p.data);
-}
+// đẩy NGẦM ngay mỗi thay đổi (fire-and-forget ở AppContext, không chặn tương tác).
+// Merge dùng last-write-wins theo AppData.updatedAt (mỗi user một khối JSON).
 
 export interface ReconcileResult {
   data: AppData; // dữ liệu nên dùng sau khi merge

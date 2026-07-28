@@ -7,10 +7,11 @@ interface Props {
   formId: number | null; // null = trứng
   shiny?: boolean;
   size: number;
+  tint?: string; // đặt màu -> hiện dạng bóng đơn sắc (vd xám cho Pokémon chưa unlock)
 }
 
 // Ảnh động (GIF) của một Pokémon; tự chuyển sang ảnh dự phòng nếu lỗi. Bậc 0 = trứng emoji.
-export default function CreatureImage({ formId, shiny = false, size }: Props) {
+export default function CreatureImage({ formId, shiny = false, size, tint }: Props) {
   const [idx, setIdx] = useState(0);
   useEffect(() => setIdx(0), [formId, shiny]);
 
@@ -38,6 +39,7 @@ export default function CreatureImage({ formId, shiny = false, size }: Props) {
       contentFit="contain"
       cachePolicy="memory-disk"
       transition={220}
+      tintColor={tint}
       onError={() => setIdx((i) => i + 1)}
     />
   );

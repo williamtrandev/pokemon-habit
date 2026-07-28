@@ -54,7 +54,9 @@ export interface Habit {
   notificationId: string | null;
   createdAt: number;
   completions: Record<ISODate, boolean>;
-  creature: Creature;
+  // Mốc hoàn thành gần nhất (epoch ms). Dùng cho habit 'interval': nút khóa trong
+  // cửa sổ everyMinutes rồi tự mở lại. undefined = chưa từng / habit cũ (hằng ngày).
+  lastCompletedAt?: number;
 }
 
 export interface AppData {
@@ -64,12 +66,44 @@ export interface AppData {
   hapticsOn: boolean;
   musicOn: boolean;
   version: number;
+  // Pokédex "đã thấy": pokedexId -> đã thu (mọi dạng từng đạt). Dùng cho tab Pokédex.
+  collection: Record<number, { shiny: boolean; at: number }>;
+  // Bầy: mỗi con là 1 CREATURE có dòng tiến hoá riêng; thân thiết đủ ngưỡng thì tiến hoá.
+  party: PartyMon[];
+  // Kẹo 🍬 — nhận mỗi lần hoàn thành (tỉ lệ chu kỳ habit), dùng cho ăn nuôi lớn Pokémon.
+  candy: number;
+  // Trứng ĐÃ đủ điểm, chờ người chơi CHẠM để đập vỏ nở (rare = mốc streak -> shiny đảm bảo).
+  pendingEggs: { rare: boolean }[];
+  // Các mốc chuỗi đã trao thưởng (7/30/100...) để không trao lặp.
+  streakClaimed: number[];
+  // Tiến trình "nở trứng": điểm tích từ hành vi habit (xem collection.ts).
+  hatchMeter: number;
+  hatchDay: ISODate; // ngày của bộ đếm/ngày
+  hatchDayAdded: number; // điểm đã cộng trong hatchDay (theo trần)
+  perfectDay?: ISODate; // ngày đã nhận thưởng "xong hết"
   // Đồng hồ logic cho đồng bộ cloud: mốc sửa gần nhất (ms). Dùng để last-write-wins
   // khi merge giữa local và Supabase.
   updatedAt: number;
+  // ===== Đấu đạo trường (boss battle) =====
+  bossBeaten?: number[];   // id các lượt boss ĐÃ hạ (nhận thưởng 1 lần/lượt); giữ gần nhất
+  bossWins?: number;       // tổng số trận thắng (mốc mỗi 5 trận -> trứng hiếm)
+  // Sức mạnh bầy: các mốc Team Power đã nhận thưởng (không trao lặp).
+  teamPowerClaimed?: number[];
 }
 
-export const CURRENT_VERSION = 3;
+// Một Pokémon trong bầy: nuôi lớn bằng kẹo -> thân thiết tăng -> tiến hoá dọc `line`.
+export interface PartyMon {
+  key: string; // id nội bộ duy nhất
+  line: { id: number; name: string }[]; // dòng tiến hoá [cơ bản, ...]
+  affection: number; // độ thân thiết -> quyết định bậc hiện tại (nuôi RIÊNG từng con)
+  shiny: boolean;
+  at: number; // mốc thu phục (ms)
+  megaId?: number; // dạng đặc biệt ĐÃ hoá của RIÊNG con này; undefined = chưa hoá/không có
+  megaName?: string;
+  megaChoice?: number; // dạng người chơi CHỌN để hoá (khi loài có nhiều dạng, vd Mega/Ash)
+}
+
+export const CURRENT_VERSION = 5;
 
 export interface HealthState {
   key: string;

@@ -7,16 +7,17 @@ import AppBackground from './src/components/AppBackground';
 import HomeScreen from './src/screens/HomeScreen';
 import HabitsScreen from './src/screens/HabitsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
-import CreatureView from './src/components/CreatureView';
+import PartyScreen from './src/screens/PartyScreen';
+import CreatureImage from './src/components/CreatureImage';
 import TabBar, { TabItem } from './src/components/TabBar';
 import Pokeball from './src/components/Pokeball';
-import { resolveForm, MEGA_STAGE } from './src/species';
 import { Colors, spacing } from './src/theme';
 
-type Tab = 'home' | 'habits' | 'history';
+type Tab = 'home' | 'party' | 'habits' | 'history';
 
 const TABS: TabItem<Tab>[] = [
-  { key: 'home', label: 'Nuôi', icon: 'paw', iconOutline: 'paw-outline' },
+  { key: 'home', label: 'Hôm nay', icon: 'checkmark-done', iconOutline: 'checkmark-done-outline' },
+  { key: 'party', label: 'Bầy', icon: 'heart', iconOutline: 'heart-outline' },
   { key: 'habits', label: 'Mục tiêu', icon: 'flag', iconOutline: 'flag-outline' },
   { key: 'history', label: 'Pokédex', icon: 'albums', iconOutline: 'albums-outline' },
 ];
@@ -56,28 +57,29 @@ function Shell() {
         ]}
       >
         {tab === 'home' && <HomeScreen onGoHabits={() => setTab('habits')} />}
+        {tab === 'party' && <PartyScreen />}
         {tab === 'habits' && <HabitsScreen />}
         {tab === 'history' && <HistoryScreen />}
       </Animated.View>
 
       <TabBar tabs={TABS} active={tab} onChange={setTab} />
 
-      <EvolveOverlay />
+      <HatchOverlay />
     </View>
   );
 }
 
-// Lớp phủ ăn mừng khi tiến hoá / hồi sinh.
-function EvolveOverlay() {
-  const { evolveEvent, clearEvolveEvent, data } = useApp();
+// Lớp phủ ăn mừng khi NỞ một Pokémon mới vào bộ sưu tập.
+function HatchOverlay() {
+  const { hatchEvent, clearHatchEvent } = useApp();
   const styles = useThemedStyles(makeStyles);
-  const [shown, setShown] = useState<typeof evolveEvent>(null);
+  const [shown, setShown] = useState<typeof hatchEvent>(null);
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.6)).current;
 
   useEffect(() => {
-    if (!evolveEvent) return;
-    setShown(evolveEvent);
+    if (!hatchEvent) return;
+    setShown(hatchEvent);
     opacity.setValue(0);
     scale.setValue(0.6);
     Animated.parallel([
@@ -87,34 +89,33 @@ function EvolveOverlay() {
     const t = setTimeout(() => {
       Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
         setShown(null);
-        clearEvolveEvent();
+        clearHatchEvent();
       });
-    }, 2600);
+    }, 2800);
     return () => clearTimeout(t);
-  }, [evolveEvent]);
+  }, [hatchEvent]);
 
   if (!shown) return null;
-  const habit = data.habits.find((h) => h.id === shown.habitId);
-  const isRevive = shown.stage === -1;
-  const isMega = shown.stage === MEGA_STAGE;
-
-  let formName = '';
-  if (habit) {
-    formName = resolveForm(habit.creature).name;
-  }
-
-  const title = isRevive ? 'Hồi sinh!' : isMega ? 'Mega tiến hoá!' : 'Tiến hoá!';
-  const burst = isRevive ? '💖✨💖' : isMega ? '🔮✨🔮' : '✨🎉✨';
-
   return (
     <Animated.View style={[styles.overlay, { opacity }]} pointerEvents="none">
       <Animated.View style={[styles.overlayCard, { transform: [{ scale }] }]}>
-        <Text style={styles.overlayBurst}>{burst}</Text>
-        {habit ? <CreatureView creature={habit.creature} size={140} particles /> : <Text style={{ fontSize: 90 }}>✨</Text>}
-        <Text style={styles.overlayTitle}>{title}</Text>
-        <Text style={styles.overlaySub}>
-          {isRevive ? `${habit?.title ?? ''} đã khoẻ lại` : `${habit?.title ?? ''} → ${formName}`}
-        </Text>
+        {shown.kind === 'milestone' ? (
+          <>
+            <Text style={styles.overlayBurst}>🎉🔥🎉</Text>
+            <Text style={{ fontSize: 90 }}>🥚✨</Text>
+            <Text style={styles.overlayTitle}>Chuỗi {shown.streak} ngày!</Text>
+            <Text style={styles.overlaySub}>Phần thưởng: 1 trứng HIẾM (shiny) ✨ — chạm để nở!</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.overlayBurst}>{shown.kind === 'evolve' ? '✨🎉✨' : '🥚✨'}</Text>
+            <CreatureImage formId={shown.id} shiny={shown.shiny} size={140} />
+            <Text style={styles.overlayTitle}>{shown.kind === 'evolve' ? 'Tiến hoá!' : 'Nở trứng!'}</Text>
+            <Text style={styles.overlaySub}>
+              {shown.shiny ? 'Pokémon Shiny ✨' : shown.kind === 'evolve' ? 'Bé đã lớn hơn rồi!' : 'Pokémon mới vào bầy!'}
+            </Text>
+          </>
+        )}
       </Animated.View>
     </Animated.View>
   );

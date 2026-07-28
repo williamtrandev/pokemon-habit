@@ -13,6 +13,14 @@ export function defaultData(): AppData {
     musicOn: false,
     version: CURRENT_VERSION,
     updatedAt: 0,
+    collection: {},
+    party: [],
+    candy: 0,
+    pendingEggs: [],
+    streakClaimed: [],
+    hatchMeter: 0,
+    hatchDay: todayStr(),
+    hatchDayAdded: 0,
   };
 }
 

@@ -1,31 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
-  XP_PER_COMPLETE, VIT_PER_COMPLETE, VIT_MISS_PENALTY, REVIVE_VITALITY, MAX_VIT,
-  clampVit, stageOf, habitStreak, applyDailyDecay, toggleCompletion,
-  countDoneToday, countDoneOnDate,
+  habitStreak, applyDailyDecay, toggleCompletion,
+  countDoneToday, countDoneOnDate, isDoneNow, nextResetAt,
 } from '../gameLogic';
-import { STAGE_XP, BRANCH_STREAK } from '../species';
+import type { ReminderTime } from '../types';
 import { addDays } from '../date';
 import { mkHabit, mkData } from './helpers';
 
 const T = '2026-07-25';
-
-describe('clampVit', () => {
-  it('floors, ceils, rounds', () => {
-    expect(clampVit(-5)).toBe(0);
-    expect(clampVit(150)).toBe(MAX_VIT);
-    expect(clampVit(50.6)).toBe(51);
-  });
-});
-
-describe('stageOf', () => {
-  it('maps xp to stage', () => {
-    expect(stageOf(0)).toBe(0);
-    expect(stageOf(39)).toBe(0);
-    expect(stageOf(40)).toBe(1);
-    expect(stageOf(STAGE_XP[3])).toBe(3);
-  });
-});
 
 describe('habitStreak', () => {
   it('counts consecutive incl today', () => {
@@ -45,79 +27,58 @@ describe('habitStreak', () => {
 });
 
 describe('toggleCompletion — complete', () => {
-  it('gains xp+vit, sets completion', () => {
-    const r = toggleCompletion(mkData([mkHabit('a')], T), 'a', T);
-    const c = r.data.habits[0].creature;
+  it('sets completion + lastCompletedAt', () => {
+    const r = toggleCompletion(mkData([mkHabit('a')], T), 'a', T, 123);
     expect(r.nowCompleted).toBe(true);
-    expect(c.xp).toBe(XP_PER_COMPLETE + 1); // streak-1 bonus
-    expect(c.vitality).toBe(clampVit(85 + VIT_PER_COMPLETE));
     expect(r.data.habits[0].completions[T]).toBe(true);
+    expect(r.data.habits[0].lastCompletedAt).toBe(123);
   });
 });
 
-describe('toggleCompletion — symmetry', () => {
-  it('complete then undo restores baseline exactly', () => {
+describe('toggleCompletion — one-way (đã tick thì khóa)', () => {
+  it('completing again is a no-op', () => {
     const after = toggleCompletion(mkData([mkHabit('a')], T), 'a', T).data;
-    const undone = toggleCompletion(after, 'a', T);
-    const c = undone.data.habits[0].creature;
-    expect(c.xp).toBe(0);
-    expect(c.vitality).toBe(85);
-    expect(undone.data.habits[0].completions[T]).toBeUndefined();
-    expect(undone.nowCompleted).toBe(false);
+    const again = toggleCompletion(after, 'a', T);
+    expect(again.nowCompleted).toBe(false);
+    expect(again.data.habits[0].completions[T]).toBe(true);
+    expect(again.data).toBe(after); // nguyên trạng
   });
 });
 
-describe('toggleCompletion — evolution', () => {
-  it('fires when crossing a stage', () => {
-    const r = toggleCompletion(mkData([mkHabit('a', {}, { xp: 30 })], T), 'a', T);
-    expect(r.evolvedTo).toBe(1);
-  });
-  it('silent within same stage', () => {
-    const r = toggleCompletion(mkData([mkHabit('a', {}, { xp: 0 })], T), 'a', T);
-    expect(r.evolvedTo).toBeNull();
-  });
-});
+describe('toggleCompletion — interval (reset mỗi cửa sổ)', () => {
+  const iv: ReminderTime = { hour: 0, minute: 0, kind: 'interval', everyMinutes: 20 };
+  const t0 = 1_800_000_000_000;
+  const mkIv = () => mkHabit('a', {}, iv);
 
-describe('toggleCompletion — revive', () => {
-  it('fainted creature revives on complete', () => {
-    const r = toggleCompletion(mkData([mkHabit('a', {}, { vitality: 0, fainted: true, xp: 50 })], T), 'a', T);
-    const c = r.data.habits[0].creature;
-    expect(r.revived).toBe(true);
-    expect(c.fainted).toBe(false);
-    expect(c.vitality).toBeGreaterThanOrEqual(REVIVE_VITALITY);
+  it('khóa trong cửa sổ, no-op giữa chừng', () => {
+    const r1 = toggleCompletion(mkData([mkIv()], T), 'a', T, t0);
+    expect(r1.nowCompleted).toBe(true);
+    expect(isDoneNow(r1.data.habits[0], t0)).toBe(true);
+    const mid = t0 + 19 * 60000;
+    expect(isDoneNow(r1.data.habits[0], mid)).toBe(true);
+    expect(toggleCompletion(r1.data, 'a', T, mid).nowCompleted).toBe(false);
+    expect(nextResetAt(r1.data.habits[0], mid)).toBe(t0 + 20 * 60000);
   });
-});
 
-describe('toggleCompletion — branch lock', () => {
-  it('legendary at final stage with high streak', () => {
-    const comp: Record<string, boolean> = {};
-    for (let i = 1; i <= BRANCH_STREAK; i++) comp[addDays(T, -i)] = true; // yesterday back
-    const r = toggleCompletion(mkData([mkHabit('a', comp, { xp: STAGE_XP[3] - 5, bestStreak: BRANCH_STREAK })], T), 'a', T);
-    const c = r.data.habits[0].creature;
-    expect(stageOf(c.xp)).toBe(3);
-    expect(c.branch).toBe('legendary');
-  });
-  it('common at final stage with low streak', () => {
-    const r = toggleCompletion(mkData([mkHabit('a', {}, { xp: STAGE_XP[3] - 5, bestStreak: 1 })], T), 'a', T);
-    expect(r.data.habits[0].creature.branch).toBe('common');
+  it('hết cửa sổ -> mở lại, tick tiếp được', () => {
+    const r1 = toggleCompletion(mkData([mkIv()], T), 'a', T, t0);
+    const after = t0 + 20 * 60000;
+    expect(isDoneNow(r1.data.habits[0], after)).toBe(false);
+    expect(nextResetAt(r1.data.habits[0], after)).toBe(null);
+    const r3 = toggleCompletion(r1.data, 'a', T, after);
+    expect(r3.nowCompleted).toBe(true);
+    expect(r3.data.habits[0].lastCompletedAt).toBe(after);
   });
 });
 
 describe('applyDailyDecay', () => {
-  it('penalizes interior missed days', () => {
-    const past = addDays(T, -3);
-    const d = applyDailyDecay(mkData([mkHabit('a', {}, { vitality: 100 })], past), T);
+  it('cập nhật lastActiveDate sang hôm nay', () => {
+    const d = applyDailyDecay(mkData([mkHabit('a')], addDays(T, -3)), T);
     expect(d.lastActiveDate).toBe(T);
-    expect(d.habits[0].creature.vitality).toBe(clampVit(100 - 2 * VIT_MISS_PENALTY));
   });
-  it('same day is a noop', () => {
-    const d = applyDailyDecay(mkData([mkHabit('a', {}, { vitality: 70 })], T), T);
-    expect(d.habits[0].creature.vitality).toBe(70);
-  });
-  it('faints when vitality hits 0', () => {
-    const past = addDays(T, -10);
-    const d = applyDailyDecay(mkData([mkHabit('a', {}, { vitality: 20 })], past), T);
-    expect(d.habits[0].creature.fainted).toBe(true);
+  it('cùng ngày là no-op', () => {
+    const src = mkData([mkHabit('a')], T);
+    expect(applyDailyDecay(src, T)).toBe(src);
   });
 });
 

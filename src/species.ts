@@ -52,6 +52,171 @@ const FALLBACK_LINE: CreatureForm[] = [
   { id: 6, name: 'Charizard' },
 ];
 
+// Lấy dòng tiến hoá theo chainId (dạng cơ bản + các bậc sau, đi theo nhánh đầu).
+// Có CACHE để lazy-load trong Pokédex: mỗi chain chỉ fetch 1 lần.
+export interface EvoChain {
+  chainId: number;
+  line: CreatureForm[]; // [cơ bản, ...tiến hoá]
+}
+const chainCache = new Map<number, EvoChain | null>();
+const chainInflight = new Map<number, Promise<EvoChain | null>>();
+// Giới hạn số fetch song song: cuộn Pokédex làm ~18 ô gọi cùng lúc -> PokéAPI 429.
+let chainActive = 0;
+const chainWaiters: (() => void)[] = [];
+const CHAIN_MAX_CONCURRENT = 4;
+function chainAcquire(): Promise<void> {
+  return new Promise((resolve) => {
+    if (chainActive < CHAIN_MAX_CONCURRENT) { chainActive++; resolve(); }
+    else chainWaiters.push(() => { chainActive++; resolve(); });
+  });
+}
+function chainRelease() {
+  chainActive = Math.max(0, chainActive - 1);
+  chainWaiters.shift()?.();
+}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function fetchEvolutionChain(chainId: number): Promise<EvoChain | null> {
+  if (chainCache.has(chainId)) return chainCache.get(chainId)!;
+  const inflight = chainInflight.get(chainId);
+  if (inflight) return inflight; // gộp request trùng (ô re-mount khi cuộn)
+
+  const task = (async (): Promise<EvoChain | null> => {
+    await chainAcquire();
+    try {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const res = await fetch(`https://pokeapi.co/api/v2/evolution-chain/${chainId}`);
+          if (res.status === 404) { chainCache.set(chainId, null); return null; } // thật sự không có
+          if (!res.ok) { await sleep(500 * (attempt + 1)); continue; } // 429/5xx -> retry, KHÔNG cache
+          const json = await res.json();
+          const line: CreatureForm[] = [];
+          let node: any = json.chain;
+          while (node && line.length < 3) {
+            line.push({ id: idFromUrl(node.species.url), name: cap(node.species.name) });
+            const nexts = node.evolves_to;
+            node = nexts && nexts.length ? nexts[0] : null; // nhánh đầu (đủ để xem cây)
+          }
+          const chain = line.length ? { chainId, line } : null;
+          chainCache.set(chainId, chain);
+          return chain;
+        } catch {
+          await sleep(500 * (attempt + 1)); // lỗi mạng -> thử lại
+        }
+      }
+      return null; // hết retry -> KHÔNG cache, lần sau cuộn tới sẽ thử lại
+    } finally {
+      chainRelease();
+      chainInflight.delete(chainId);
+    }
+  })();
+  chainInflight.set(chainId, task);
+  return task;
+}
+
+// ===== Thông tin chi tiết Pokémon (stats/mô tả/kích thước) từ PokéAPI =====
+export interface PokeInfo {
+  genus: string;    // "Ninja Pokémon"
+  flavor: string;   // mô tả Pokédex (1 câu)
+  heightM: number;  // mét
+  weightKg: number; // kg
+  types: string[];  // ['water', ...]
+  stats: { name: string; value: number }[]; // hp/attack/...
+}
+const infoCache = new Map<number, PokeInfo>();
+
+export async function fetchPokeInfo(id: number): Promise<PokeInfo | null> {
+  if (infoCache.has(id)) return infoCache.get(id)!;
+  try {
+    const pres = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
+    if (!pres.ok) return null;
+    const p = await pres.json();
+    // Species chỉ có id LOÀI GỐC (vd Greninja 658), KHÔNG có id dạng đặc biệt (Ash 10116).
+    // Lấy theo p.species.url -> đúng cho MỌI dạng (gốc/Mega/biến thể). Types & stats vẫn từ /pokemon/{id}.
+    const speciesUrl: string = p.species?.url ?? `https://pokeapi.co/api/v2/pokemon-species/${id}`;
+    const sres = await fetch(speciesUrl);
+    const s: any = sres.ok ? await sres.json() : {};
+    const genus: string = (s.genera ?? []).find((g: any) => g.language?.name === 'en')?.genus ?? '';
+    const fe = (s.flavor_text_entries ?? []).find((e: any) => e.language?.name === 'en');
+    const flavor = String(fe?.flavor_text ?? '').replace(/\s+/g, ' ').trim();
+    const info: PokeInfo = {
+      genus,
+      flavor,
+      heightM: (p.height ?? 0) / 10,
+      weightKg: (p.weight ?? 0) / 10,
+      types: (p.types ?? []).map((t: any) => t.type.name),
+      stats: (p.stats ?? []).map((st: any) => ({ name: st.stat.name, value: st.base_stat })),
+    };
+    infoCache.set(id, info);
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+// ===== Chiêu thức (moves) từ PokéAPI =====
+export interface MoveInfo { id: number; name: string; type: string; power: number | null; damageClass: string }
+const moveCache = new Map<number, MoveInfo[]>();
+
+// 4 chiêu học theo cấp (level-up) sớm nhất của 1 Pokémon, kèm hệ + power. Cache theo id.
+export async function fetchMoves(pokemonId: number): Promise<MoveInfo[]> {
+  if (moveCache.has(pokemonId)) return moveCache.get(pokemonId)!;
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokemonId}`);
+    if (!res.ok) return [];
+    const j = await res.json();
+    const byName = new Map<string, number>(); // tên chiêu -> cấp thấp nhất học được
+    for (const m of j.moves ?? []) {
+      const lvs: number[] = (m.version_group_details ?? [])
+        .filter((d: any) => d.move_learn_method?.name === 'level-up')
+        .map((d: any) => d.level_learned_at);
+      if (!lvs.length) continue;
+      const min = Math.min(...lvs);
+      const name = m.move.name;
+      byName.set(name, Math.min(byName.get(name) ?? Infinity, min));
+    }
+    // Dạng đặc biệt (Mega/Ash...) thường KHÔNG có chiêu level-up riêng -> mượn của loài GỐC.
+    if (byName.size === 0) {
+      const sid = idFromUrl(j.species?.url ?? '');
+      if (sid && sid !== pokemonId) {
+        const alt = await fetchMoves(sid);
+        moveCache.set(pokemonId, alt);
+        return alt;
+      }
+    }
+    const top = [...byName.entries()].sort((a, b) => a[1] - b[1]).slice(0, 4).map(([n]) => n);
+    const infos = await Promise.all(
+      top.map(async (n): Promise<MoveInfo> => {
+        try {
+          const mj = await (await fetch(`https://pokeapi.co/api/v2/move/${n}`)).json();
+          return { id: mj.id ?? 0, name: cap(mj.name ?? n), type: mj.type?.name ?? 'normal', power: mj.power ?? null, damageClass: mj.damage_class?.name ?? 'status' };
+        } catch {
+          return { id: 0, name: cap(n), type: 'normal', power: null, damageClass: 'status' };
+        }
+      })
+    );
+    moveCache.set(pokemonId, infos);
+    return infos;
+  } catch {
+    return [];
+  }
+}
+
+// Từ 1 species id -> dòng tiến hoá chứa nó (qua pokemon-species.evolution_chain).
+export async function fetchChainForSpecies(speciesId: number): Promise<EvoChain | null> {
+  try {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${speciesId}`);
+    if (!res.ok) return null;
+    const j = await res.json();
+    const url: string | undefined = j.evolution_chain?.url;
+    const m = url?.match(/\/(\d+)\/?$/);
+    if (!m) return null;
+    return fetchEvolutionChain(Number(m[1]));
+  } catch {
+    return null;
+  }
+}
+
 // Lấy một dòng tiến hoá ngẫu nhiên (1..3 dạng). Có retry + dự phòng khi offline.
 export async function fetchRandomLine(avoidIds: number[] = []): Promise<{ line: CreatureForm[]; color: string }> {
   for (let tries = 0; tries < 6; tries++) {
@@ -69,6 +234,9 @@ export async function fetchRandomLine(avoidIds: number[] = []): Promise<{ line: 
       }
       if (line.length >= 1) {
         const finalId = line[line.length - 1].id;
+        // Ưu tiên loài CÓ tiến hoá (≥2 bậc) để pet còn đổi hình được; loài đơn-bậc
+        // (vd Dedenne) sẽ không bao giờ "tiến hoá". Nới ràng buộc ở 2 lượt cuối để tránh kẹt.
+        if (line.length < 2 && tries < 4) continue;
         if (avoidIds.includes(finalId) && tries < 4) continue; // tránh trùng nếu còn lượt
         return { line, color: colorForId(finalId) };
       }
