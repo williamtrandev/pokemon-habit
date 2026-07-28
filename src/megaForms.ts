@@ -5,7 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MegaForm } from './species';
 
-const CACHE_KEY = 'pokemon-habit:mega:v3';
+const CACHE_KEY = 'pokemon-habit:mega:v4';
 // [] = đã tra, không có Mega. Không có key = chưa tra.
 const mem = new Map<number, MegaForm[]>();
 let diskLoaded = false;
