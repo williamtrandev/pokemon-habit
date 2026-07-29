@@ -1,5 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, View, Text, StyleSheet, Pressable, Animated, Easing, Dimensions, SafeAreaView } from 'react-native';
+import { Modal, View, Text, StyleSheet, Pressable, Animated, Easing, Dimensions, Platform, StatusBar } from 'react-native';
+
+// Chèn an toàn TỰ TÍNH (không dùng SafeAreaView — trong Modal nó KHÔNG chèn đáy đáng tin
+// trên máy thật -> nút bị tràn xuống dưới home-indicator, mất chữ).
+const SAFE_TOP = Platform.OS === 'ios' ? 56 : (StatusBar.currentHeight ?? 24) + 8;
+const SAFE_BOTTOM = Platform.OS === 'ios' ? 40 : 20;
 import CreatureImage from './CreatureImage';
 import { Combatant, BattleEvent, effLabel, simulateBattle } from '../battle';
 import { typeColor, typeLabel } from '../pokemonTypes';
@@ -189,7 +194,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <SafeAreaView style={styles.root}>
+      <View style={styles.root}>
         {/* ===== Sân đấu ===== */}
         <View style={styles.arena}>
           {/* Boss (trên) */}
@@ -254,7 +259,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
         </View>
 
         {phase === 'win' && <Confetti />}
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
@@ -331,7 +336,7 @@ function ConfettiBit({ emoji, i }: { emoji: string; i: number }) {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: '#0B1220F7' },
-    arena: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm, justifyContent: 'space-between' },
+    arena: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: SAFE_TOP, paddingBottom: spacing.sm, justifyContent: 'space-between' },
     bossRow: { marginTop: spacing.sm, alignItems: 'flex-end' },
     bossMon: { alignItems: 'center', marginTop: spacing.md, marginRight: spacing.lg },
     playerRow: { alignItems: 'flex-start', marginTop: 'auto' },
@@ -354,7 +359,7 @@ const makeStyles = (colors: Colors) =>
     pipLive: { backgroundColor: '#22C55E', borderColor: '#4ADE80' },
     pipDead: { backgroundColor: 'transparent', borderColor: '#64748B' },
     pipText: { color: '#94A3B8', fontSize: 12, fontWeight: '700', marginLeft: 6 },
-    dock: { backgroundColor: '#111827', borderTopWidth: 1, borderColor: '#1F2937', padding: spacing.lg, paddingBottom: spacing.xl },
+    dock: { backgroundColor: '#111827', borderTopWidth: 1, borderColor: '#1F2937', padding: spacing.lg, paddingBottom: SAFE_BOTTOM },
     introHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
     tierTag: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 },
     tierTagText: { color: '#fff', fontSize: 12, fontWeight: '900' },

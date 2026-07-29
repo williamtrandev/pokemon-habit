@@ -4,7 +4,7 @@ import { useApp } from '../AppContext';
 import { PartyMon } from '../types';
 import CreatureImage from '../components/CreatureImage';
 import ProgressBar from '../components/ProgressBar';
-import { stageFromAffection, EVO_AFFECTION, MEGA_AFFECTION, streakFire, currentForm } from '../collection';
+import { stageFromAffection, EVO_AFFECTION, MEGA_AFFECTION, streakFire, currentForm, EGG_PRICE, RARE_EGG_PRICE } from '../collection';
 import { habitStreak } from '../gameLogic';
 import { todayStr } from '../date';
 import { fetchMegas } from '../megaForms';
@@ -55,7 +55,7 @@ function view(mon: PartyMon) {
 }
 
 export default function PartyScreen() {
-  const { data, feedPokemon, reportBattleWin, claimTeamPower } = useApp();
+  const { data, feedPokemon, reportBattleWin, claimTeamPower, buyEgg, hatchEgg } = useApp();
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
 
@@ -63,6 +63,7 @@ export default function PartyScreen() {
   const [selKey, setSelKey] = useState<string | null>(null);
   const sel = party.find((m) => m.key === selKey) ?? party[0] ?? null;
   const candy = Math.floor(data.candy ?? 0);
+  const pendingEggs = data.pendingEggs?.length ?? 0;
   const bestStreak = data.habits.reduce((m, h) => Math.max(m, habitStreak(h, todayStr())), 0);
 
   // Chỉ số gốc của DẠNG hiện tại mỗi con -> Sức mạnh bầy + dữ liệu đấu boss.
@@ -206,6 +207,31 @@ export default function PartyScreen() {
           )}
         </>
       )}
+
+      {/* Cửa hàng trứng — đổi kẹo lấy trứng để thu thêm Pokémon */}
+      <View style={styles.shopCard}>
+        <View style={styles.shopHead}>
+          <Text style={styles.shopTitle}>🛒 Cửa hàng trứng</Text>
+          {pendingEggs > 0 && (
+            <Pressable onPress={() => { feedbackTap(); hatchEgg(); }} style={styles.hatchNow}>
+              <Text style={styles.hatchNowText}>Nở ngay 🥚 ×{pendingEggs}</Text>
+            </Pressable>
+          )}
+        </View>
+        <Text style={styles.shopHint}>Đổi kẹo 🍬 lấy trứng — cách nhanh để thu thêm Pokémon</Text>
+        <View style={styles.shopRow}>
+          <Pressable disabled={candy < EGG_PRICE} onPress={() => buyEgg(false)}
+            style={[styles.shopBtn, candy < EGG_PRICE && styles.shopBtnOff]}>
+            <Text style={styles.shopBtnLabel}>🥚 Trứng thường</Text>
+            <Text style={styles.shopBtnPrice}>🍬 {EGG_PRICE}</Text>
+          </Pressable>
+          <Pressable disabled={candy < RARE_EGG_PRICE} onPress={() => buyEgg(true)}
+            style={[styles.shopBtn, styles.shopBtnRare, candy < RARE_EGG_PRICE && styles.shopBtnOff]}>
+            <Text style={styles.shopBtnLabel}>🥚✨ Trứng hiếm</Text>
+            <Text style={[styles.shopBtnPrice, { color: colors.accent }]}>🍬 {RARE_EGG_PRICE}</Text>
+          </Pressable>
+        </View>
+      </View>
 
       {party.length === 0 ? (
         <View style={styles.empty}>
@@ -520,6 +546,19 @@ const makeStyles = (colors: Colors) =>
     bossGo: { color: colors.primary, fontSize: 20, fontWeight: '900', marginLeft: spacing.sm },
     tierTag: { borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
     tierTagText: { color: '#fff', fontSize: 10.5, fontWeight: '900' },
+    // Cửa hàng trứng
+    shopCard: { backgroundColor: colors.card, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, marginBottom: spacing.md },
+    shopHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    shopTitle: { color: colors.text, fontSize: 14, fontWeight: '800' },
+    shopHint: { color: colors.textDim, fontSize: 11.5, marginTop: 2, marginBottom: spacing.sm },
+    hatchNow: { backgroundColor: colors.accent, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5 },
+    hatchNowText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+    shopRow: { flexDirection: 'row', gap: spacing.sm },
+    shopBtn: { flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingVertical: spacing.md, alignItems: 'center', gap: 3 },
+    shopBtnRare: { borderColor: colors.accent },
+    shopBtnOff: { opacity: 0.4 },
+    shopBtnLabel: { color: colors.text, fontSize: 12.5, fontWeight: '800' },
+    shopBtnPrice: { color: colors.primary, fontSize: 13, fontWeight: '900' },
     statRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     statLabel: { color: colors.textDim, fontSize: 11, fontWeight: '700', width: 46 },
     statBarBg: { flex: 1, height: 8, borderRadius: 4, backgroundColor: colors.track, overflow: 'hidden' },

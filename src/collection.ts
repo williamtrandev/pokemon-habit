@@ -45,6 +45,10 @@ export function currentForm(mon: PartyMon): { id: number; name: string } {
   return mon.line[stage];
 }
 
+// ===== Cửa hàng trứng: đổi kẹo lấy trứng để thu thêm Pokémon nhanh hơn =====
+export const EGG_PRICE = 120;       // kẹo cho 1 trứng thường
+export const RARE_EGG_PRICE = 600;  // kẹo cho 1 trứng HIẾM (shiny đảm bảo)
+
 // Streak dài -> cơ hội shiny cao hơn (tối đa 8%).
 export function shinyChance(bestStreak: number): number {
   return Math.min(0.01 + bestStreak * 0.002, 0.08);

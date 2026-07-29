@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { AppData, Habit, PartyMon, ReminderTime } from './types';
 import { defaultData, loadData, saveData, clearData } from './storage';
 import { applyDailyDecay, toggleCompletion, intervalMs, isDoneNow, habitStreak } from './gameLogic';
-import { addHatchProgress, stageFromAffection, shinyChance, EVO_AFFECTION, MEGA_AFFECTION, FEED_CHUNK, completionCandy, STREAK_MILESTONES } from './collection';
+import { addHatchProgress, stageFromAffection, shinyChance, EVO_AFFECTION, MEGA_AFFECTION, FEED_CHUNK, completionCandy, STREAK_MILESTONES, EGG_PRICE, RARE_EGG_PRICE } from './collection';
 import { fetchRandomLine, fetchChainForSpecies } from './species';
 import { TEAM_POWER_MILESTONES, battleCandy, BATTLE_EGG_EVERY } from './battle';
 import { fetchMegas } from './megaForms';
@@ -37,6 +37,8 @@ interface AppContextValue {
   feedPokemon: (key: string) => void;
   pickMega: (key: string, formId: number, formName: string) => void;
   hatchEgg: () => void;
+  // Cửa hàng: đổi kẹo lấy trứng (vào hàng chờ nở). Trả về true nếu mua được.
+  buyEgg: (rare: boolean) => boolean;
   // Thắng boss -> trao thưởng cho LƯỢT boss đó (kẹo 1 lần/lượt theo độ khó, trứng mỗi 5 trận).
   reportBattleWin: (encounterId: number, bossBst: number, candyMul: number) => { candy: number; egg: boolean; already: boolean };
   // Sức mạnh bầy đạt mốc mới -> trao kẹo. Trả về tổng kẹo vừa trao (0 nếu không có mốc mới).
@@ -296,6 +298,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const clearHatchEvent = useCallback(() => setHatchEvent(null), []);
 
+  // Mua trứng bằng kẹo -> vào hàng chờ (chạm để nở). Trứng hiếm = shiny đảm bảo.
+  const buyEgg = useCallback((rare: boolean): boolean => {
+    const price = rare ? RARE_EGG_PRICE : EGG_PRICE;
+    const d0 = dataRef.current;
+    if (Math.floor(d0.candy ?? 0) < price) return false;
+    feedbackComplete();
+    setData((d) => touch({ ...d, candy: (d.candy ?? 0) - price, pendingEggs: [...d.pendingEggs, { rare }] }));
+    return true;
+  }, [touch]);
+
   // Thắng boss: kẹo trao 1 LẦN cho mỗi LƯỢT boss (theo độ khó); trứng hiếm mỗi BATTLE_EGG_EVERY trận.
   const reportBattleWin = useCallback((encounterId: number, bossBst: number, candyMul: number): { candy: number; egg: boolean; already: boolean } => {
     const now = Date.now();
@@ -468,6 +480,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         feedPokemon,
         pickMega,
         hatchEgg,
+        buyEgg,
         reportBattleWin,
         claimTeamPower,
         addHabit,
