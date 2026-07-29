@@ -302,7 +302,7 @@ function ResultPanel({ win, reward, onClose, styles }: { win: boolean; reward: {
       {win ? (
         <Text style={styles.dockLine}>
           {reward && reward.candy > 0 ? `Phần thưởng: 🍬 +${reward.candy} kẹo!` : 'Lượt boss này đã hạ rồi — không thêm kẹo, nhưng luyện tập tốt!'}
-          {reward?.egg ? '  ·  🥚✨ Trứng HIẾM!' : ''}
+          {reward?.egg ? '  ·  🥚 +Trứng thưởng!' : ''}
         </Text>
       ) : (
         <Text style={styles.dockLine}>Cả bầy đã kiệt sức. Nuôi lớn thêm rồi quay lại phục thù!</Text>

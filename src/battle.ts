@@ -152,12 +152,14 @@ export interface BossTier {
   atkMul: number;  // bội công boss
   candyMul: number; // bội kẹo thưởng
   weight: number;  // trọng số random
+  winEgg?: 'normal' | 'rare'; // thắng bậc này -> tặng thêm 1 trứng (đảm bảo)
 }
 export const BOSS_TIERS: BossTier[] = [
-  { key: 'easy', label: 'Dễ', color: '#22C55E', hpMul: 0.7, atkMul: 0.75, candyMul: 0.6, weight: 3 },
-  { key: 'normal', label: 'Thường', color: '#3B82F6', hpMul: 1.0, atkMul: 1.0, candyMul: 1.0, weight: 4 },
-  { key: 'hard', label: 'Khó', color: '#F97316', hpMul: 1.5, atkMul: 1.25, candyMul: 1.9, weight: 2 },
-  { key: 'elite', label: 'Cực khó', color: '#EF4444', hpMul: 2.1, atkMul: 1.5, candyMul: 3.2, weight: 1 },
+  { key: 'easy', label: 'Dễ', color: '#22C55E', hpMul: 0.9, atkMul: 0.9, candyMul: 0.8, weight: 2 },
+  { key: 'normal', label: 'Thường', color: '#3B82F6', hpMul: 1.3, atkMul: 1.15, candyMul: 1.3, weight: 4 },
+  { key: 'hard', label: 'Khó', color: '#F97316', hpMul: 1.9, atkMul: 1.4, candyMul: 2.2, weight: 3 },
+  { key: 'elite', label: 'Cực khó', color: '#EF4444', hpMul: 2.6, atkMul: 1.75, candyMul: 4.0, weight: 2, winEgg: 'normal' },
+  { key: 'legendary', label: 'Huyền thoại', color: '#FBBF24', hpMul: 3.5, atkMul: 2.1, candyMul: 6.5, weight: 1, winEgg: 'rare' },
 ];
 function pickTier(r: number): BossTier {
   const total = BOSS_TIERS.reduce((s, t) => s + t.weight, 0);

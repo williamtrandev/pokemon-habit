@@ -266,7 +266,7 @@ export default function PartyScreen() {
         boss={arena.boss}
         tier={arena.tier}
         seed={arena.seed}
-        onWin={() => reportBattleWin(arena.enc.id, arena.bossBst, arena.tier.candyMul)}
+        onWin={() => reportBattleWin(arena.enc.id, arena.bossBst, arena.tier.candyMul, arena.tier.winEgg)}
         onClose={() => setArena(null)}
       />
     )}

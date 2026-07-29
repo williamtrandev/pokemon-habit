@@ -39,8 +39,8 @@ interface AppContextValue {
   hatchEgg: () => void;
   // Cửa hàng: đổi kẹo lấy trứng (vào hàng chờ nở). Trả về true nếu mua được.
   buyEgg: (rare: boolean) => boolean;
-  // Thắng boss -> trao thưởng cho LƯỢT boss đó (kẹo 1 lần/lượt theo độ khó, trứng mỗi 5 trận).
-  reportBattleWin: (encounterId: number, bossBst: number, candyMul: number) => { candy: number; egg: boolean; already: boolean };
+  // Thắng boss -> trao thưởng cho LƯỢT boss đó (kẹo theo độ khó; bậc khó tặng trứng; mỗi 3 trận +1 trứng hiếm).
+  reportBattleWin: (encounterId: number, bossBst: number, candyMul: number, winEgg?: 'normal' | 'rare') => { candy: number; egg: boolean; already: boolean };
   // Sức mạnh bầy đạt mốc mới -> trao kẹo. Trả về tổng kẹo vừa trao (0 nếu không có mốc mới).
   claimTeamPower: (power: number) => number;
   setSound: (on: boolean) => void;
@@ -308,8 +308,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [touch]);
 
-  // Thắng boss: kẹo trao 1 LẦN cho mỗi LƯỢT boss (theo độ khó); trứng hiếm mỗi BATTLE_EGG_EVERY trận.
-  const reportBattleWin = useCallback((encounterId: number, bossBst: number, candyMul: number): { candy: number; egg: boolean; already: boolean } => {
+  // Thắng boss: kẹo 1 LẦN/lượt (theo độ khó); bậc khó tặng trứng đảm bảo; mỗi BATTLE_EGG_EVERY trận +1 trứng hiếm.
+  const reportBattleWin = useCallback((encounterId: number, bossBst: number, candyMul: number, winEgg?: 'normal' | 'rare'): { candy: number; egg: boolean; already: boolean } => {
     const now = Date.now();
     const d0 = dataRef.current;
     const already = (d0.bossBeaten ?? []).includes(encounterId);
@@ -317,17 +317,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const candy = battleCandy(Math.max(0, bossBst), candyMul);
     const wins = (d0.bossWins ?? 0) + 1;
-    const egg = wins % BATTLE_EGG_EVERY === 0;
+    const newEggs: { rare: boolean }[] = [];
+    if (winEgg) newEggs.push({ rare: winEgg === 'rare' });        // thưởng bậc khó
+    if (wins % BATTLE_EGG_EVERY === 0) newEggs.push({ rare: true }); // mốc mỗi 3 trận
+    const egg = newEggs.length > 0;
 
     setData((d) => {
-      const eggs = egg ? [...d.pendingEggs, { rare: true }] : d.pendingEggs;
       const beaten = [...(d.bossBeaten ?? []), encounterId].slice(-40); // giữ 40 lượt gần nhất
       return touch({
         ...d,
         candy: (d.candy ?? 0) + candy,
         bossWins: wins,
         bossBeaten: beaten,
-        pendingEggs: eggs,
+        pendingEggs: [...d.pendingEggs, ...newEggs],
       });
     });
     if (egg) {
