@@ -73,6 +73,14 @@ export function effLabel(mult: number): string {
   return '';
 }
 
+export const ALL_TYPES = Object.keys(CHART);
+
+// Các hệ tấn công KHẮC CHẾ (gây dame tăng, mult>1) lên bộ hệ phòng thủ cho trước.
+// Dùng gợi ý người chơi chọn Pokémon phù hợp để đấu boss.
+export function countersOf(defTypes: string[]): string[] {
+  return ALL_TYPES.filter((t) => typeMultiplier([t], defTypes) > 1);
+}
+
 // ===== Chiến binh (combatant) suy từ chỉ số gốc =====
 export interface Combatant {
   key: string; // party key hoặc 'boss'

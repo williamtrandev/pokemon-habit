@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, View, Text, StyleSheet, Pressable, Animated, Easing, Dimensions, Platform, StatusBar } from 'react-native';
+import { Modal, View, Text, StyleSheet, Pressable, ScrollView, Animated, Easing, Dimensions, Platform, StatusBar } from 'react-native';
 
 // Chèn an toàn TỰ TÍNH (không dùng SafeAreaView — trong Modal nó KHÔNG chèn đáy đáng tin
 // trên máy thật -> nút bị tràn xuống dưới home-indicator, mất chữ).
 const SAFE_TOP = Platform.OS === 'ios' ? 56 : (StatusBar.currentHeight ?? 24) + 8;
 const SAFE_BOTTOM = Platform.OS === 'ios' ? 40 : 20;
 import CreatureImage from './CreatureImage';
-import { Combatant, BattleEvent, effLabel, simulateBattle } from '../battle';
+import { Combatant, BattleEvent, effLabel, simulateBattle, typeMultiplier, countersOf } from '../battle';
 import { typeColor, typeLabel } from '../pokemonTypes';
 import { Colors, radius, spacing } from '../theme';
 import { useTheme, useThemedStyles } from '../theme-context';
@@ -26,8 +26,17 @@ interface Props {
 
 const STEP = 900;   // ms mỗi sự kiện
 const HIT = 220;    // ms từ lúc lao tới lúc trúng đòn
+const MAX_LINEUP = 3; // số Pokémon tối đa được mang ra đấu (công bằng cho boss)
 
 const hpColor = (r: number) => (r > 0.5 ? '#22C55E' : r > 0.2 ? '#EAB308' : '#EF4444');
+
+// Nhãn khắc hệ của MỘT con (tấn công) lên boss.
+function effBadge(mult: number): { text: string; color: string } {
+  if (mult === 0) return { text: 'Vô hiệu', color: '#94A3B8' };
+  if (mult >= 2) return { text: `Khắc ×${mult}`, color: '#22C55E' };
+  if (mult < 1) return { text: `Kém ×${mult}`, color: '#EF4444' };
+  return { text: 'Thường', color: '#94A3B8' };
+}
 
 export default function BattleArena({ visible, onClose, team, boss, tier, seed, onWin }: Props) {
   const { colors } = useTheme();
@@ -39,10 +48,12 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
     return m;
   }, [team]);
 
-  const result = useMemo(() => simulateBattle(team.map((f) => f.c), boss, seed), [team, boss, seed]);
+  const [phase, setPhase] = useState<'select' | 'playing' | 'win' | 'lose'>('select');
+  const [picked, setPicked] = useState<string[]>([]); // key theo THỨ TỰ ra sân
+  const lineup = useMemo(() => picked.map((k) => teamMap.get(k)!).filter(Boolean), [picked, teamMap]);
+  const result = useMemo(() => simulateBattle(lineup.map((f) => f.c), boss, seed), [lineup, boss, seed]);
 
-  const [phase, setPhase] = useState<'intro' | 'playing' | 'win' | 'lose'>('intro');
-  const [curKey, setCurKey] = useState<string>(team[0]?.c.key ?? '');
+  const [curKey, setCurKey] = useState<string>('');
   const [faints, setFaints] = useState(0);
   const [log, setLog] = useState('');
   const [banner, setBanner] = useState<{ text: string; good: boolean } | null>(null);
@@ -54,7 +65,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
   const [bossHpR, setBossHpR] = useState(1);
   const [playerHpR, setPlayerHpR] = useState(1);
   const [bossHpN, setBossHpN] = useState(boss.maxHp);
-  const [playerHpN, setPlayerHpN] = useState(team[0]?.c.maxHp ?? 0);
+  const [playerHpN, setPlayerHpN] = useState(0);
   const bossLunge = useRef(new Animated.Value(0)).current;
   const playerLunge = useRef(new Animated.Value(0)).current;
   const bossShake = useRef(new Animated.Value(0)).current;
@@ -69,11 +80,12 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
   useEffect(() => {
     if (!visible) return;
     clearTimers();
-    setPhase('intro');
-    setCurKey(team[0]?.c.key ?? '');
+    setPhase('select');
+    setPicked([]);
+    setCurKey('');
     setFaints(0); setLog(''); setBanner(null); setDmg(null); setReward(null);
     bossHp.setValue(1); playerHp.setValue(1); setBossHpR(1); setPlayerHpR(1);
-    setBossHpN(boss.maxHp); setPlayerHpN(team[0]?.c.maxHp ?? 0);
+    setBossHpN(boss.maxHp); setPlayerHpN(0);
     playerFade.setValue(1);
     return clearTimers;
   }, [visible]);
@@ -99,10 +111,18 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
     set(to);
   };
 
-  const start = () => {
+  const togglePick = (key: string) => {
     feedbackTap();
+    setPicked((p) => p.includes(key) ? p.filter((k) => k !== key) : p.length < MAX_LINEUP ? [...p, key] : p);
+  };
+
+  const start = () => {
+    if (!lineup.length) return;
+    feedbackTap();
+    setCurKey(lineup[0].c.key);
+    setPlayerHpN(lineup[0].c.maxHp);
     setPhase('playing');
-    setLog(`Trận đấu bắt đầu! ${team[0]?.c.name} tiến lên!`);
+    setLog(`Trận đấu bắt đầu! ${lineup[0].c.name} tiến lên!`);
     play(0);
   };
 
@@ -182,7 +202,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
     finish();
   };
 
-  const curFighter = teamMap.get(curKey) ?? team[0];
+  const curFighter = teamMap.get(curKey) ?? lineup[0] ?? team[0];
   const W = Dimensions.get('window').width;
 
   const bossTx = bossLunge.interpolate({ inputRange: [0, 1], outputRange: [0, -W * 0.28] });
@@ -195,6 +215,11 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.root}>
+        {phase === 'select' ? (
+          <SelectScreen boss={boss} tier={tier} roster={team} picked={picked}
+            onToggle={togglePick} onStart={start} onClose={onClose} styles={styles} />
+        ) : (
+        <>
         {/* ===== Sân đấu ===== */}
         <View style={styles.arena}>
           {/* Boss (trên) */}
@@ -223,30 +248,17 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
             </View>
           )}
 
-          {/* Bi đội (còn sống) */}
+          {/* Đội hình xuất chiến (còn sống) */}
           <View style={styles.pips}>
-            {team.map((f, i) => (
-              <View key={f.c.key} style={[styles.pip, i < team.length - faints ? styles.pipLive : styles.pipDead]} />
+            {lineup.map((f, i) => (
+              <View key={f.c.key} style={[styles.pip, i < lineup.length - faints ? styles.pipLive : styles.pipDead]} />
             ))}
-            <Text style={styles.pipText}>Bầy còn {Math.max(0, team.length - faints)}/{team.length}</Text>
+            <Text style={styles.pipText}>Còn {Math.max(0, lineup.length - faints)}/{lineup.length}</Text>
           </View>
         </View>
 
         {/* ===== Bảng thoại / điều khiển ===== */}
         <View style={styles.dock}>
-          {phase === 'intro' && (
-            <>
-              <View style={styles.introHead}>
-                <Text style={styles.dockTitle}>⚔️ {boss.name} xuất hiện!</Text>
-                <View style={[styles.tierTag, { backgroundColor: tier.color }]}><Text style={styles.tierTagText}>Độ khó: {tier.label}</Text></View>
-              </View>
-              <Text style={styles.dockLine}>Boss sẽ biến mất sau ít phút — cả bầy tiếp sức lần lượt. Thắng để nhận kẹo!</Text>
-              <View style={styles.btnRow}>
-                <Pressable onPress={start} style={[styles.btn, styles.btnPrimary]}><Text style={styles.btnPrimaryText}>Bắt đầu!</Text></Pressable>
-                <Pressable onPress={onClose} style={styles.btn}><Text style={styles.btnText}>Để sau</Text></Pressable>
-              </View>
-            </>
-          )}
           {phase === 'playing' && (
             <>
               <Text style={styles.dockLine}>{log}</Text>
@@ -259,8 +271,83 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
         </View>
 
         {phase === 'win' && <Confetti />}
+        </>
+        )}
       </View>
     </Modal>
+  );
+}
+
+// Màn CHỌN Pokémon xuất chiến + gợi ý khắc hệ boss.
+function SelectScreen({ boss, tier, roster, picked, onToggle, onStart, onClose, styles }: {
+  boss: Combatant; tier: { label: string; color: string }; roster: Fighter[];
+  picked: string[]; onToggle: (k: string) => void; onStart: () => void; onClose: () => void; styles: any;
+}) {
+  const counters = countersOf(boss.types); // hệ nên mang để khắc chế boss
+  return (
+    <>
+      <ScrollView contentContainerStyle={styles.selContent} showsVerticalScrollIndicator={false}>
+        <Text style={styles.selTitle}>Chọn Pokémon xuất chiến</Text>
+
+        {/* Boss + gợi ý khắc hệ */}
+        <View style={styles.selBoss}>
+          <CreatureImage formId={boss.id} size={72} />
+          <View style={{ flex: 1, marginLeft: spacing.md }}>
+            <View style={styles.selBossHead}>
+              <Text style={styles.selBossName}>{boss.name}</Text>
+              <View style={[styles.tierTag, { backgroundColor: tier.color }]}><Text style={styles.tierTagText}>{tier.label}</Text></View>
+            </View>
+            <View style={styles.chipRow}>
+              {boss.types.map((t) => <TypeChip key={t} t={t} styles={styles} />)}
+            </View>
+            <Text style={styles.selHintLabel}>Khắc chế boss (dame ↑):</Text>
+            <View style={styles.chipRow}>
+              {counters.length ? counters.map((t) => <TypeChip key={t} t={t} styles={styles} />)
+                : <Text style={styles.selHintDim}>Không hệ nào khắc — chọn con Công/Đ.Công cao</Text>}
+            </View>
+          </View>
+        </View>
+
+        <Text style={styles.selNote}>Chạm chọn tối đa {MAX_LINEUP} · thứ tự chạm = thứ tự ra sân</Text>
+
+        <View style={styles.selGrid}>
+          {roster.map((f) => {
+            const mult = typeMultiplier(f.c.types, boss.types);
+            const badge = effBadge(mult);
+            const order = picked.indexOf(f.c.key);
+            const on = order >= 0;
+            return (
+              <Pressable key={f.c.key} onPress={() => onToggle(f.c.key)}
+                style={[styles.selCell, on && { borderColor: tier.color, borderWidth: 2.5 }]}>
+                {on && <View style={[styles.selOrder, { backgroundColor: tier.color }]}><Text style={styles.selOrderText}>{order + 1}</Text></View>}
+                <CreatureImage formId={f.c.id} shiny={f.shiny} size={56} />
+                <Text style={styles.selName} numberOfLines={1}>{f.shiny ? '✨ ' : ''}{f.c.name}</Text>
+                <View style={styles.chipRow}>{f.c.types.map((t) => <TypeChip key={t} t={t} styles={styles} small />)}</View>
+                <Text style={[styles.selBadge, { color: badge.color }]}>{badge.text}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
+
+      <View style={styles.dock}>
+        <Text style={styles.dockLine}>Chọn con KHẮC hệ boss để gây dame gấp bội. Đội càng ít, thắng càng vẻ vang!</Text>
+        <View style={styles.btnRow}>
+          <Pressable onPress={onStart} disabled={!picked.length} style={[styles.btn, styles.btnPrimary, !picked.length && { opacity: 0.5 }]}>
+            <Text style={styles.btnPrimaryText}>Xuất chiến ({picked.length}/{MAX_LINEUP})</Text>
+          </Pressable>
+          <Pressable onPress={onClose} style={styles.btn}><Text style={styles.btnText}>Để sau</Text></Pressable>
+        </View>
+      </View>
+    </>
+  );
+}
+
+function TypeChip({ t, styles, small }: { t: string; styles: any; small?: boolean }) {
+  return (
+    <View style={[styles.tChip, small && styles.tChipSm, { backgroundColor: typeColor(t) }]}>
+      <Text style={[styles.tChipText, small && styles.tChipTextSm]}>{typeLabel(t)}</Text>
+    </View>
   );
 }
 
@@ -372,4 +459,24 @@ const makeStyles = (colors: Colors) =>
     btnPrimaryText: { color: '#fff', fontWeight: '900', fontSize: 15 },
     btnSkip: { alignSelf: 'flex-end', marginTop: spacing.sm },
     btnText: { color: '#E5E7EB', fontWeight: '800', fontSize: 14 },
+    // ===== Màn chọn xuất chiến =====
+    selContent: { paddingHorizontal: spacing.lg, paddingTop: SAFE_TOP, paddingBottom: spacing.lg },
+    selTitle: { color: '#fff', fontSize: 22, fontWeight: '900', marginBottom: spacing.md },
+    selBoss: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', borderRadius: radius.lg, borderWidth: 1, borderColor: '#334155', padding: spacing.md },
+    selBossHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    selBossName: { color: '#fff', fontSize: 17, fontWeight: '900' },
+    selHintLabel: { color: '#93C5FD', fontSize: 11.5, fontWeight: '800', marginTop: spacing.sm },
+    selHintDim: { color: '#94A3B8', fontSize: 11.5 },
+    selNote: { color: '#94A3B8', fontSize: 12, fontWeight: '600', marginTop: spacing.md, marginBottom: spacing.sm },
+    selGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    selCell: { width: '31%', backgroundColor: '#1E293B', borderRadius: radius.md, borderWidth: 1, borderColor: '#334155', paddingVertical: spacing.md, alignItems: 'center', gap: 3 },
+    selOrder: { position: 'absolute', top: 4, left: 4, width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+    selOrderText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+    selName: { color: '#fff', fontSize: 11.5, fontWeight: '800', maxWidth: '92%' },
+    selBadge: { fontSize: 11, fontWeight: '900', marginTop: 1 },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, justifyContent: 'center' },
+    tChip: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 },
+    tChipSm: { paddingHorizontal: 5, paddingVertical: 1 },
+    tChipText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+    tChipTextSm: { fontSize: 8.5 },
   });
