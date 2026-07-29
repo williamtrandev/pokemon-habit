@@ -306,7 +306,7 @@ export const TEAM_POWER_MILESTONES: { power: number; candy: number }[] = [
 
 // ===== Thưởng đấu boss =====
 export const BATTLE_CANDY_FACTOR = 0.3; // kẹo thắng = round(bossBST * factor * bội_độ_khó)
-export const BATTLE_EGG_EVERY = 5; // mỗi 5 trận thắng -> 1 trứng hiếm
+export const BATTLE_EGG_EVERY = 3; // mỗi 3 trận thắng -> 1 trứng hiếm
 
 export function battleCandy(bossBst: number, candyMul = 1): number {
   return Math.round(bossBst * BATTLE_CANDY_FACTOR * candyMul);

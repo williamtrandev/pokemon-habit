@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   addHatchProgress, stageFromAffection, EVO_AFFECTION, completionCandy, CANDY_PER_DAY,
-  HATCH_DAILY_CAP, PERFECT_DAY_BONUS, HATCH_THRESHOLD,
+  HATCH_DAILY_CAP, PERFECT_DAY_BONUS, HATCH_THRESHOLD, hatchPoints,
 } from '../collection';
+
+// Tổng điểm nở một lượt cộng (kể cả phần đã quy ra trứng).
+const added = (before: number, r: { data: { hatchMeter: number }; newEggs: number }) =>
+  r.data.hatchMeter - before + r.newEggs * HATCH_THRESHOLD;
 import { mkData, mkHabit } from './helpers';
 
 const T = '2026-07-25';
@@ -20,17 +24,17 @@ describe('addHatchProgress — trần điểm/ngày', () => {
   it('sang ngày mới thì reset bộ đếm/ngày', () => {
     let data = addHatchProgress(base(), { today: T, allDoneToday: false, bestStreak: 0 }).data;
     data = addHatchProgress(data, { today: '2026-07-26', allDoneToday: false, bestStreak: 0 }).data;
-    expect(data.hatchDayAdded).toBe(1);
+    expect(data.hatchDayAdded).toBe(hatchPoints(0)); // 1 lượt trong ngày mới
     expect(data.hatchDay).toBe('2026-07-26');
   });
 });
 
 describe('addHatchProgress — thưởng "xong hết" (1 lần/ngày)', () => {
   it('cộng PERFECT_DAY_BONUS đúng 1 lần', () => {
-    let r = addHatchProgress(base(), { today: T, allDoneToday: true, bestStreak: 0 });
-    expect(r.data.hatchMeter).toBe(1 + PERFECT_DAY_BONUS);
-    r = addHatchProgress(r.data, { today: T, allDoneToday: true, bestStreak: 0 });
-    expect(r.data.hatchMeter).toBe(1 + PERFECT_DAY_BONUS + 1); // không cộng bonus lần 2
+    const r1 = addHatchProgress(base(), { today: T, allDoneToday: true, bestStreak: 0 });
+    expect(added(0, r1)).toBe(hatchPoints(0) + PERFECT_DAY_BONUS); // lượt + bonus
+    const r2 = addHatchProgress(r1.data, { today: T, allDoneToday: true, bestStreak: 0 });
+    expect(added(r1.data.hatchMeter, r2)).toBe(hatchPoints(0)); // không cộng bonus lần 2
   });
 });
 

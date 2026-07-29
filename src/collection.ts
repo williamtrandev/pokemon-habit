@@ -4,13 +4,13 @@ import { AppData, PartyMon } from './types';
 // Điểm nở đến từ SỰ KIÊN TRÌ (làm mỗi ngày, xong hết, streak). Đủ ngưỡng -> nở 1 con MỚI
 // (một creature dạng cơ bản, tạo ở AppContext qua fetchRandomLine). Nuôi lớn bằng kẹo.
 
-export const HATCH_DAILY_CAP = 8;   // trần điểm/ngày (chống cày dồn) — nới để thu nhiều hơn
-export const PERFECT_DAY_BONUS = 2; // xong HẾT hôm nay (1 lần/ngày)
-export const HATCH_THRESHOLD = 5;   // đủ điểm -> nở (thấp hơn -> nhiều Pokémon hơn)
+export const HATCH_DAILY_CAP = 14;  // trần điểm/ngày (chống cày dồn) — nới rộng để thu nhanh hơn
+export const PERFECT_DAY_BONUS = 4; // xong HẾT hôm nay (1 lần/ngày)
+export const HATCH_THRESHOLD = 3;   // đủ điểm -> nở (thấp hơn -> nhiều Pokémon hơn)
 
 // Điểm nở mỗi lần hoàn thành, TĂNG theo chuỗi ngày -> giữ chuỗi = trứng nở nhanh hơn (đòn bẩy giữ chân).
 export function hatchPoints(bestStreak: number): number {
-  return 1 + Math.floor(bestStreak / 7); // 0-6:1, 7-13:2, 14-20:3...
+  return 2 + Math.floor(bestStreak / 7); // 0-6:2, 7-13:3, 14-20:4...
 }
 
 // ===== Nuôi lớn (kẹo ↔ thân thiết 1:1) =====
