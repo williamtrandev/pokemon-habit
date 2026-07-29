@@ -361,7 +361,7 @@ const makeStyles = (colors: Colors) =>
     dockTitle: { color: '#fff', fontSize: 20, fontWeight: '900', marginBottom: spacing.xs },
     dockLine: { color: '#CBD5E1', fontSize: 14, fontWeight: '600', lineHeight: 20, minHeight: 40 },
     btnRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
-    btn: { paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.pill, backgroundColor: '#1F2937', alignItems: 'center' },
+    btn: { paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.pill, backgroundColor: '#1F2937', alignItems: 'center', justifyContent: 'center', minHeight: 52 },
     btnPrimary: { backgroundColor: '#F97316', flex: 1 },
     btnWide: { backgroundColor: '#F97316', alignSelf: 'stretch', marginTop: spacing.md },
     btnPrimaryText: { color: '#fff', fontWeight: '900', fontSize: 15 },
