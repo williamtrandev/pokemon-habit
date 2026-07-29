@@ -302,7 +302,7 @@ function ResultPanel({ win, reward, onClose, styles }: { win: boolean; reward: {
       ) : (
         <Text style={styles.dockLine}>Cả bầy đã kiệt sức. Nuôi lớn thêm rồi quay lại phục thù!</Text>
       )}
-      <Pressable onPress={onClose} style={[styles.btn, styles.btnPrimary]}><Text style={styles.btnPrimaryText}>Xong</Text></Pressable>
+      <Pressable onPress={onClose} style={[styles.btn, styles.btnWide]}><Text style={styles.btnPrimaryText}>Xong</Text></Pressable>
     </>
   );
 }
@@ -363,6 +363,7 @@ const makeStyles = (colors: Colors) =>
     btnRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
     btn: { paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.pill, backgroundColor: '#1F2937', alignItems: 'center' },
     btnPrimary: { backgroundColor: '#F97316', flex: 1 },
+    btnWide: { backgroundColor: '#F97316', alignSelf: 'stretch', marginTop: spacing.md },
     btnPrimaryText: { color: '#fff', fontWeight: '900', fontSize: 15 },
     btnSkip: { alignSelf: 'flex-end', marginTop: spacing.sm },
     btnText: { color: '#E5E7EB', fontWeight: '800', fontSize: 14 },
