@@ -3,6 +3,9 @@ import {
   typeMultiplier, effLabel, bstFromStats, toCombatant,
   simulateBattle, battleCandy, Combatant, BOSS_POOL, BOSS_TIERS,
   encounterForPeriod, activeBoss, nextBoss, BOSS_PERIOD_MS,
+  phaseAt, phasesOf, lineupScale, lineupAtkScale, SCALE_BASE_POWER, SCALE_MAX, SCALE_ATK_SHARE,
+  ENRAGE_ATK_MUL, ALL_TYPES,
+  TEAM_POWER_MILESTONES, TEAM_POWER_STEP, teamMilestoneAt, teamMilestonesUpTo, nextTeamMilestone, teamRank,
 } from '../battle';
 
 const stats = (hp: number, atk: number, spd: number) => [
@@ -90,6 +93,146 @@ describe('simulateBattle', () => {
     const r = simulateBattle([], mk('boss', 100, 50, 50, ['fire']), 1);
     expect(r.win).toBe(false);
     expect(r.events.length).toBe(0);
+  });
+
+  it('boss ĐỔI HỆ theo pha -> một con không khắc được suốt trận', () => {
+    const team = [mk('a', 200, 120, 90, ['water']), mk('b', 200, 120, 90, ['water']), mk('c', 200, 120, 90, ['water'])];
+    const boss = mk('boss', 200, 40, 30, ['fire']);
+    const r = simulateBattle(team, boss, 99, ['water', 'grass']);
+    // Pha 1 hệ gốc (fire), pha 2 water, pha 3 grass -> hệ boss trong log phải đổi.
+    const seen = new Set(r.events.map((e) => (e.bossTypes ?? []).join('/')));
+    expect(seen.size).toBeGreaterThan(1);
+    expect(seen.has('fire')).toBe(true);
+  });
+
+  it('đổi pha -> LUÂN PHIÊN sang con kế, thứ tự chọn = thứ tự gánh pha', () => {
+    const team = [mk('a', 300, 90, 90, ['water']), mk('b', 300, 90, 90, ['water']), mk('c', 300, 90, 90, ['water'])];
+    const boss = mk('boss', 260, 30, 20, ['fire']);
+    const r = simulateBattle(team, boss, 5, ['water', 'water']);
+    // Không con nào gục (boss quá yếu) nhưng vẫn phải có luân phiên do đổi pha.
+    expect(r.events.some((e) => e.faintedKey)).toBe(false);
+    expect(r.events.some((e) => e.incomingReason === 'phase')).toBe(true);
+  });
+
+  it('sự kiện luân phiên mang kèm MÁU THẬT của con vào sân (UI không vẽ đầy thanh)', () => {
+    const team = [mk('a', 200, 90, 90, ['water']), mk('b', 200, 90, 90, ['water']), mk('c', 200, 90, 90, ['water'])];
+    const boss = mk('boss', 240, 60, 40, ['fire']);
+    const r = simulateBattle(team, boss, 33, ['water', 'water']);
+    const swaps = r.events.filter((e) => e.incomingKey);
+    expect(swaps.length).toBeGreaterThan(0);
+    for (const e of swaps) {
+      expect(e.incomingHp).toBeDefined();
+      const max = team.find((c) => c.key === e.incomingKey)!.maxHp;
+      expect(e.incomingHp!).toBeGreaterThan(0);
+      expect(e.incomingHp!).toBeLessThanOrEqual(max);
+    }
+  });
+
+  it('con rút về GIỮ máu đã mất, quay lại không được hồi', () => {
+    const team = [mk('a', 60, 90, 90, ['water']), mk('b', 300, 90, 10, ['water'])];
+    const boss = mk('boss', 300, 70, 50, ['fire']);
+    const r = simulateBattle(team, boss, 11, ['water', 'water']);
+    // Máu của mỗi con phải đơn điệu giảm theo thời gian — không có cú "hồi đầy" khi vào lại.
+    const hpOf = new Map<string, number>();
+    for (const e of r.events) {
+      if (e.attacker !== 'boss') continue;
+      const k = e.faintedKey ?? e.defenderKey;
+      const prev = hpOf.get(k);
+      if (prev != null) expect(e.playerHp).toBeLessThanOrEqual(prev);
+      hpOf.set(k, e.playerHp);
+    }
+  });
+
+  it('đánh quá chậm -> boss hồi máu (không rùa được)', () => {
+    // Công thấp + thủ boss cao -> mỗi đòn gãi nhẹ, kéo dài quá STALL_ROUNDS.
+    const team = [mk('a', 900, 12, 90, ['normal'])];
+    const boss = mk('boss', 400, 8, 10, ['normal']);
+    const r = simulateBattle(team, boss, 21, ['normal', 'normal']);
+    expect(r.events.some((e) => (e.regen ?? 0) > 0)).toBe(true);
+  });
+});
+
+describe('pha boss', () => {
+  it('phaseAt theo mốc 2/3 và 1/3', () => {
+    expect(phaseAt(1)).toBe(0);
+    expect(phaseAt(0.7)).toBe(0);
+    expect(phaseAt(2 / 3)).toBe(1);
+    expect(phaseAt(0.4)).toBe(1);
+    expect(phaseAt(1 / 3)).toBe(2);
+    expect(phaseAt(0)).toBe(2);
+  });
+
+  it('phasesOf: 3 pha, pha 1 hệ gốc, chỉ pha cuối nổi giận', () => {
+    const ps = phasesOf(['steel', 'psychic'], ['fire', 'dark']);
+    expect(ps.length).toBe(3);
+    expect(ps[0].types).toEqual(['steel', 'psychic']);
+    expect(ps[1].types).toEqual(['fire']);
+    expect(ps[2].types).toEqual(['dark']);
+    expect(ps.map((p) => p.enraged)).toEqual([false, false, true]);
+    expect(ENRAGE_ATK_MUL).toBeGreaterThan(1);
+  });
+
+  it('encounter mang 2 hệ hào quang hợp lệ và ổn định theo kỳ', () => {
+    const a = encounterForPeriod(4242);
+    const b = encounterForPeriod(4242);
+    expect(a.auraTypes).toEqual(b.auraTypes);
+    expect(ALL_TYPES).toContain(a.auraTypes[0]);
+    expect(ALL_TYPES).toContain(a.auraTypes[1]);
+  });
+});
+
+describe('lineupScale — boss theo kịp đội hình mang đi', () => {
+  it('đội hình yếu -> không scale', () => {
+    expect(lineupScale(0)).toBe(1);
+    expect(lineupScale(SCALE_BASE_POWER)).toBe(1);
+  });
+
+  it('đội hình mạnh -> scale lên, có trần', () => {
+    expect(lineupScale(SCALE_BASE_POWER * 1.5)).toBeCloseTo(1.5);
+    expect(lineupScale(SCALE_BASE_POWER * 99)).toBe(SCALE_MAX);
+  });
+
+  it('bội CÔNG tăng chậm hơn bội MÁU (không one-shot cả đội)', () => {
+    const hp = lineupScale(SCALE_BASE_POWER * 2);
+    const atk = lineupAtkScale(SCALE_BASE_POWER * 2);
+    expect(atk).toBeLessThan(hp);
+    expect(atk).toBeCloseTo(1 + (SCALE_MAX - 1) * SCALE_ATK_SHARE);
+    expect(lineupAtkScale(0)).toBe(1);
+  });
+});
+
+describe('thang Sức mạnh bầy — không bao giờ hết mốc', () => {
+  it('4 mốc đầu giữ đúng con số cũ (đã trao kẹo theo `power`, đổi là sai)', () => {
+    expect(TEAM_POWER_MILESTONES.map((m) => m.power)).toEqual([2000, 5000, 10000, 20000]);
+    expect(teamMilestoneAt(0)).toEqual({ power: 2000, candy: 150, index: 0 });
+  });
+
+  it('hết bảng thì sinh thêm mãi, kẹo mốc sau nhiều hơn mốc trước', () => {
+    const first = teamMilestoneAt(TEAM_POWER_MILESTONES.length);
+    const second = teamMilestoneAt(TEAM_POWER_MILESTONES.length + 1);
+    expect(first.power).toBe(20000 + TEAM_POWER_STEP);
+    expect(second.power).toBe(20000 + TEAM_POWER_STEP * 2);
+    expect(second.candy).toBeGreaterThan(first.candy);
+    // Rất mạnh vẫn còn mốc kế tiếp -> thẻ không còn dòng "đã đạt mốc cao nhất".
+    expect(nextTeamMilestone(1_000_000).power).toBeGreaterThan(1_000_000);
+  });
+
+  it('mốc luôn TĂNG dần và nextTeamMilestone là mốc chưa đạt gần nhất', () => {
+    for (let i = 1; i < 30; i++) {
+      expect(teamMilestoneAt(i).power).toBeGreaterThan(teamMilestoneAt(i - 1).power);
+    }
+    const n = nextTeamMilestone(23_000);
+    expect(n.power).toBe(30_000);
+    expect(teamMilestonesUpTo(23_000).map((m) => m.power)).toEqual([2000, 5000, 10000, 20000]);
+  });
+
+  it('danh hiệu leo theo sức mạnh, hết hạng thì đếm SAO', () => {
+    expect(teamRank(0).label).toBe('Tân binh');
+    expect(teamRank(21_000).label).toBe('Quán quân');
+    expect(teamRank(21_000).star).toBe(0);
+    expect(teamRank(31_000).star).toBe(1); // vượt 1 mốc sinh thêm
+    expect(teamRank(100_000).label).toBe('Truyền kỳ');
+    expect(teamRank(100_000).star).toBeGreaterThan(1);
   });
 });
 

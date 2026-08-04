@@ -4,7 +4,7 @@ import { defaultData, loadData, saveData, clearData } from './storage';
 import { applyDailyDecay, toggleCompletion, intervalMs, isDoneNow, habitStreak } from './gameLogic';
 import { addHatchProgress, stageFromAffection, shinyChance, EVO_AFFECTION, MEGA_AFFECTION, FEED_CHUNK, completionCandy, STREAK_MILESTONES, EGG_PRICE, RARE_EGG_PRICE } from './collection';
 import { fetchRandomLine, fetchChainForSpecies } from './species';
-import { TEAM_POWER_MILESTONES, battleCandy, BATTLE_EGG_EVERY } from './battle';
+import { teamMilestonesUpTo, battleCandy, BATTLE_EGG_EVERY } from './battle';
 import { fetchMegas } from './megaForms';
 import { cancelReminder, scheduleReminder, setupChannel } from './notifications';
 import { configureFeedback, feedbackComplete, feedbackEvolve } from './feedback';
@@ -319,7 +319,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const wins = (d0.bossWins ?? 0) + 1;
     const newEggs: { rare: boolean }[] = [];
     if (winEgg) newEggs.push({ rare: winEgg === 'rare' });        // thưởng bậc khó
-    if (wins % BATTLE_EGG_EVERY === 0) newEggs.push({ rare: true }); // mốc mỗi 3 trận
+    if (wins % BATTLE_EGG_EVERY === 0) newEggs.push({ rare: true }); // mốc mỗi BATTLE_EGG_EVERY trận
     const egg = newEggs.length > 0;
 
     setData((d) => {
@@ -343,7 +343,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const claimTeamPower = useCallback((power: number): number => {
     const d0 = dataRef.current;
     const claimed = d0.teamPowerClaimed ?? [];
-    const fresh = TEAM_POWER_MILESTONES.filter((m) => power >= m.power && !claimed.includes(m.power));
+    // Thang mốc giờ VÔ TẬN (teamMilestonesUpTo sinh tiếp sau bảng cố định), nên bầy lớn tới
+    // đâu cũng còn mốc để nhận. `teamPowerClaimed` vẫn khoá theo `power` -> mốc cũ không trao lại.
+    const fresh = teamMilestonesUpTo(power).filter((m) => !claimed.includes(m.power));
     if (!fresh.length) return 0;
     const gained = fresh.reduce((s, m) => s + m.candy, 0);
     setData((d) => touch({

@@ -1,16 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Easing, ActivityIndicator } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Easing, ActivityIndicator, useWindowDimensions, TextInput, Modal, Platform, StatusBar } from 'react-native';
 import { useApp } from '../AppContext';
 import { PartyMon } from '../types';
 import CreatureImage from '../components/CreatureImage';
 import ProgressBar from '../components/ProgressBar';
-import { stageFromAffection, EVO_AFFECTION, MEGA_AFFECTION, streakFire, currentForm, EGG_PRICE, RARE_EGG_PRICE } from '../collection';
+import { stageFromAffection, EVO_AFFECTION, MEGA_AFFECTION, FEED_CHUNK, streakFire, currentForm, EGG_PRICE, RARE_EGG_PRICE } from '../collection';
 import { habitStreak } from '../gameLogic';
 import { todayStr } from '../date';
 import { fetchMegas } from '../megaForms';
 import { MegaForm, MoveInfo, fetchMoves, PokeInfo, fetchPokeInfo } from '../species';
 import { typeColor, typeLabel } from '../pokemonTypes';
-import { bstFromStats, activeBoss, nextBoss, toCombatant, TEAM_POWER_MILESTONES, Combatant, BossEncounter, BossTier } from '../battle';
+import { bstFromStats, activeBoss, nextBoss, toCombatant, nextTeamMilestone, teamMilestonesUpTo, teamRank, Combatant, BossEncounter, BossTier, lineupScale, lineupAtkScale } from '../battle';
+import { LIVE_HP_MUL, LIVE_ATK_MUL } from '../battleLive';
 import BattleArena, { Fighter } from '../components/BattleArena';
 import { Colors, radius, spacing, TAB_BAR_SPACE } from '../theme';
 import { useTheme, useThemedStyles } from '../theme-context';
@@ -30,6 +31,38 @@ function clockAt(ms: number): string {
 }
 
 // Dạng hiển thị + tiến trình nuôi của RIÊNG một con.
+// Lưới chọn Pokémon: 5 cột, ô tự giãn theo bề rộng máy.
+const ROSTER_COLS = 5;
+const ROSTER_GAP = spacing.sm;
+
+// Bầy đông (50+ con) thì cuộn tìm một con rất mệt, nên có tìm kiếm + lọc + xếp,
+// và chỉ vẽ trước một phần rồi "xem thêm".
+const PAGE = 25;
+
+type SortKey = 'power' | 'affection' | 'need' | 'new';
+type FilterKey = 'all' | 'ready' | 'growing' | 'max' | 'shiny';
+
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: 'power', label: 'Lực chiến' },
+  { key: 'affection', label: 'Thân thiết' },
+  { key: 'need', label: 'Gần tiến hoá' },
+  { key: 'new', label: 'Mới nhất' },
+];
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: 'all', label: 'Tất cả' },
+  { key: 'ready', label: '▲ Đủ kẹo' },
+  { key: 'growing', label: 'Đang nuôi' },
+  { key: 'max', label: 'MAX' },
+  { key: 'shiny', label: '✨ Shiny' },
+];
+
+// Mọi tên mà con này từng/đang mang -> gõ "swamp" là ra Mega Swampert.
+function searchText(mon: PartyMon): string {
+  return [...mon.line.map((f) => f.name), mon.megaName ?? '']
+    .join(' ')
+    .toLowerCase();
+}
+
 const STAT_VI: Record<string, string> = {
   hp: 'HP', attack: 'Công', defense: 'Thủ', 'special-attack': 'Đ.Công', 'special-defense': 'Đ.Thủ', speed: 'Tốc',
 };
@@ -54,14 +87,44 @@ function view(mon: PartyMon) {
   return { stage, maxedEvo, isMega, form, ratio };
 }
 
+// Trạng thái NUÔI của một con — dùng cho tag ở lưới chọn và cho nút "Cho ăn".
+//
+// Phải khớp đúng luật trong AppContext.feedPokemon:
+//   spend = min(kẹo, FEED_CHUNK, MEGA_AFFECTION - affection); spend <= 0 -> không làm gì.
+// Nghĩa là chạm trần MEGA_AFFECTION là hết đường nuôi, kể cả khi loài không có Mega.
+// `megas === undefined` = chưa tra xong PokéAPI, chưa dám kết luận MAX.
+function growth(mon: PartyMon, megas: MegaForm[] | undefined) {
+  const v = view(mon);
+  const hasMega = (megas?.length ?? 0) > 0;
+  const atCap = mon.affection >= MEGA_AFFECTION; // trần tuyệt đối, cho ăn thêm vô ích
+
+  const nextAt = atCap ? null : !v.maxedEvo ? EVO_AFFECTION[v.stage + 1] : hasMega ? MEGA_AFFECTION : null;
+
+  return {
+    ...v,
+    hasMega,
+    megasKnown: megas !== undefined,
+    // Kẹo cần để lên dạng kế tiếp (null = hết đường nuôi).
+    // Không bao giờ bằng 0: bậc suy ra từ affection nên luôn còn thiếu ít nhất 1.
+    need: nextAt == null ? null : Math.max(1, Math.ceil(nextAt - mon.affection)),
+    growable: nextAt != null,
+  };
+}
+
 export default function PartyScreen() {
   const { data, feedPokemon, reportBattleWin, claimTeamPower, buyEgg, hatchEgg } = useApp();
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
 
   const party = [...(data.party ?? [])].sort((a, b) => b.affection - a.affection || b.at - a.at);
+  // Chạm một con thì mở BẢNG RIÊNG. Trước đây bảng nuôi nằm DƯỚI cả lưới, bầy 50+ con là
+  // phải cuộn rất lâu mới thấy con mình vừa chạm.
   const [selKey, setSelKey] = useState<string | null>(null);
-  const sel = party.find((m) => m.key === selKey) ?? party[0] ?? null;
+  const sel = selKey ? party.find((m) => m.key === selKey) ?? null : null;
+  const [q, setQ] = useState('');
+  const [sortBy, setSortBy] = useState<SortKey>('power');
+  const [filter, setFilter] = useState<FilterKey>('all');
+  const [limit, setLimit] = useState(PAGE);
   const candy = Math.floor(data.candy ?? 0);
   const pendingEggs = data.pendingEggs?.length ?? 0;
   const bestStreak = data.habits.reduce((m, h) => Math.max(m, habitStreak(h, todayStr())), 0);
@@ -83,6 +146,67 @@ export default function PartyScreen() {
     return () => { alive = false; };
   }, [curIds]);
 
+  // Dạng đặc biệt (Mega/Ash...) của TỪNG con -> biết con nào còn nuôi được tiếp.
+  // fetchMegas có cache riêng nên tra cho cả bầy vẫn rẻ.
+  const [megaMap, setMegaMap] = useState<Record<number, MegaForm[]>>({});
+  const finalIds = party.map((m) => m.line[m.line.length - 1].id).join(',');
+  useEffect(() => {
+    let alive = true;
+    const ids = finalIds ? [...new Set(finalIds.split(',').map(Number))] : [];
+    Promise.all(ids.map((id) => fetchMegas(id).then((ms) => [id, ms] as const))).then((pairs) => {
+      if (!alive) return;
+      setMegaMap((prev) => {
+        const next = { ...prev };
+        for (const [id, ms] of pairs) next[id] = ms;
+        return next;
+      });
+    });
+    return () => { alive = false; };
+  }, [finalIds]);
+
+  // Ô lưới GIÃN theo bề rộng máy để hàng lấp đầy đúng hai mép — ô cố định 60pt sẽ để hở
+  // một khoảng bên phải, trông như bị lệch.
+  const { width: winW } = useWindowDimensions();
+  const cellSize = Math.floor((winW - spacing.lg * 2 - ROSTER_GAP * (ROSTER_COLS - 1)) / ROSTER_COLS);
+
+  const megasOf = (m: PartyMon) => megaMap[m.line[m.line.length - 1].id];
+  // "Sẵn sàng" = kẹo đang có đủ để đẩy con đó lên dạng kế tiếp.
+  const readyCount = party.filter((m) => {
+    const g = growth(m, megasOf(m));
+    return g.need != null && candy >= g.need;
+  }).length;
+
+  // ===== Tìm / lọc / xếp bầy =====
+  const bstOf = (m: PartyMon) => {
+    const info = infos[currentForm(m).id];
+    return info ? bstFromStats(info.stats) : 0;
+  };
+  const shown = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const list = party.filter((m) => {
+      if (needle && !searchText(m).includes(needle)) return false;
+      const g = growth(m, megasOf(m));
+      switch (filter) {
+        case 'ready': return g.need != null && candy >= g.need;
+        case 'growing': return g.need != null;
+        case 'max': return g.megasKnown && g.need == null;
+        case 'shiny': return m.shiny;
+        default: return true;
+      }
+    });
+    const cmp: Record<SortKey, (a: PartyMon, b: PartyMon) => number> = {
+      power: (a, b) => bstOf(b) - bstOf(a) || b.affection - a.affection,
+      affection: (a, b) => b.affection - a.affection,
+      // Thiếu ít kẹo nhất lên đầu; con hết đường nuôi (need = null) xuống cuối.
+      need: (a, b) => (growth(a, megasOf(a)).need ?? Infinity) - (growth(b, megasOf(b)).need ?? Infinity),
+      new: (a, b) => b.at - a.at,
+    };
+    return [...list].sort(cmp[sortBy]);
+  }, [party, q, filter, sortBy, candy, megaMap, infos]);
+
+  // Đổi bộ lọc thì quay lại trang đầu, kẻo đang mở 100 con rồi lọc còn 3 con.
+  useEffect(() => setLimit(PAGE), [q, filter, sortBy]);
+
   const teamPower = party.reduce((s, m) => {
     const info = infos[currentForm(m).id];
     return s + (info ? bstFromStats(info.stats) : 0);
@@ -94,10 +218,12 @@ export default function PartyScreen() {
     if (allLoaded && teamPower > 0) claimTeamPower(teamPower);
   }, [teamPower, allLoaded]);
 
-  const nextMilestone = TEAM_POWER_MILESTONES.find((m) => teamPower < m.power);
-  const prevMilestone = [...TEAM_POWER_MILESTONES].reverse().find((m) => teamPower >= m.power);
-  const mBase = prevMilestone?.power ?? 0;
-  const mRatio = nextMilestone ? Math.max(0, Math.min(1, (teamPower - mBase) / (nextMilestone.power - mBase))) : 1;
+  // Thang mốc VÔ TẬN: luôn có mốc kế tiếp, nên thẻ không còn đứng ở "đã đạt mốc cao nhất".
+  const reached = teamMilestonesUpTo(teamPower);
+  const nextMilestone = nextTeamMilestone(teamPower);
+  const mBase = reached.length ? reached[reached.length - 1].power : 0;
+  const mRatio = Math.max(0, Math.min(1, (teamPower - mBase) / Math.max(1, nextMilestone.power - mBase)));
+  const rank = teamRank(teamPower);
 
   // ===== Đấu boss: sự kiện ngẫu nhiên có hẹn giờ =====
   const [now, setNow] = useState(() => Date.now());
@@ -120,7 +246,10 @@ export default function PartyScreen() {
   const bossReady = allLoaded && !!bossInfo && encounter != null;
   const rewardPreview = bossInfo && encounter ? Math.round(bstFromStats(bossInfo.stats) * 0.3 * encounter.tier.candyMul) : 0;
 
-  const [arena, setArena] = useState<{ team: Fighter[]; boss: Combatant; tier: BossTier; enc: BossEncounter; bossBst: number; seed: number } | null>(null);
+  const [arena, setArena] = useState<{
+    team: Fighter[]; boss: Combatant; makeBoss: (p: number) => Combatant;
+    tier: BossTier; enc: BossEncounter; bossBst: number; auraTypes: [string, string]; seed: number;
+  } | null>(null);
   const openArena = () => {
     if (!bossReady || !encounter || !bossInfo || beaten) return;
     feedbackTap();
@@ -128,18 +257,40 @@ export default function PartyScreen() {
       .map((m) => {
         const f = currentForm(m);
         const info = infos[f.id]!;
-        return { c: toCombatant(m.key, f.id, f.name || `#${f.id}`, info.types, info.stats), shiny: m.shiny };
+        return {
+          c: toCombatant(m.key, f.id, f.name || `#${f.id}`, info.types, info.stats),
+          shiny: m.shiny,
+          bst: bstFromStats(info.stats), // để cộng thành Sức mạnh đội hình -> scale boss
+        };
       })
       .sort((a, b) => b.c.maxHp + b.c.atk - (a.c.maxHp + a.c.atk));
     const bossBst = bstFromStats(bossInfo.stats);
     const t = encounter.tier;
+    // Boss xem trước (chưa scale) để màn chọn hiện tên/hệ/ảnh.
     const boss = toCombatant('boss', encounter.species.id, encounter.species.name, bossInfo.types, bossInfo.stats, t.hpMul, t.atkMul);
-    setArena({ team: fighters, boss, tier: t, enc: encounter, bossBst, seed: (encounter.seed + Date.now()) >>> 0 });
+    // Boss THẬT dựng sau khi biết đội hình: mang đội mạnh thì boss mạnh theo, nên bầy lớn
+    // tới đâu lượt boss vẫn đáng đánh (xem lineupScale trong battle.ts).
+    // LIVE_* là bội riêng của chế độ đánh-theo-lượt: trận phải dài 9-13 lượt mới đủ chỗ cho
+    // đọc dự báo / dồn lực / đỡ đòn (xem battleLive.ts).
+    const stats = bossInfo.stats;
+    const makeBoss = (lineupPower: number) =>
+      toCombatant(
+        'boss', encounter.species.id, encounter.species.name, bossInfo.types, stats,
+        t.hpMul * lineupScale(lineupPower) * LIVE_HP_MUL,
+        t.atkMul * lineupAtkScale(lineupPower) * LIVE_ATK_MUL
+      );
+    setArena({
+      team: fighters, boss, makeBoss, tier: t, enc: encounter, bossBst,
+      auraTypes: encounter.auraTypes,
+      seed: (encounter.seed + Date.now()) >>> 0,
+    });
   };
 
   return (
     <>
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    {/* Có ô tìm kiếm trong này nên cần 'handled': mặc định 'never' thì lượt chạm đầu tiên
+        sau khi nhập bị dùng để tắt bàn phím, phải chạm hai lần mới bấm được nút. */}
+    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Bầy của tôi</Text>
@@ -161,9 +312,17 @@ export default function PartyScreen() {
               <Text style={styles.powerLabel}>⚡ Sức mạnh bầy</Text>
               <Text style={styles.powerVal}>{allLoaded ? teamPower : '…'}</Text>
             </View>
+            <View style={styles.rankRow}>
+              <View style={[styles.rankPill, { backgroundColor: rank.color + '26', borderColor: rank.color }]}>
+                <Text style={[styles.rankText, { color: rank.color }]}>
+                  {rank.label}{rank.star > 0 ? ` ${'★'.repeat(Math.min(rank.star, 5))}${rank.star > 5 ? `+${rank.star - 5}` : ''}` : ''}
+                </Text>
+              </View>
+              <Text style={styles.rankCount}>{reached.length} mốc đã nhận</Text>
+            </View>
             <ProgressBar ratio={mRatio} color={colors.accent} />
             <Text style={styles.powerHint}>
-              {nextMilestone ? `Còn ${Math.max(0, nextMilestone.power - teamPower)} → mốc ${nextMilestone.power} thưởng 🍬${nextMilestone.candy}` : 'Đã đạt mốc cao nhất — quá mạnh! 💪'}
+              Còn {Math.max(0, nextMilestone.power - teamPower)} → mốc {nextMilestone.power} thưởng 🍬{nextMilestone.candy}
             </Text>
           </View>
 
@@ -241,29 +400,121 @@ export default function PartyScreen() {
         </View>
       ) : (
         <>
-          {/* Thanh chọn ngang: chạm để chọn con muốn xem & nuôi */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.roster}>
-            {party.map((m) => {
-              const v = view(m);
-              const on = sel?.key === m.key;
-              return (
-                <Pressable key={m.key} onPress={() => { feedbackTap(); setSelKey(m.key); }}
-                  style={[styles.rosterCell, on && { borderColor: colors.primary, borderWidth: 2 }]}>
-                  <CreatureImage formId={v.form.id} shiny={m.shiny} size={46} />
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          {/* Lưới chọn con muốn xem & nuôi.
+              Trước đây là dải cuộn NGANG lồng trong ScrollView dọc — bầy đông thì không
+              thấy hết con nào có con nào, và vuốt hay bị cướp cử chỉ giữa hai chiều.
+              Giờ tự xuống dòng: không còn cuộn ngang. */}
+          <View style={styles.rosterHead}>
+            <Text style={styles.rosterTitle}>Chạm một con để nuôi</Text>
+            {readyCount > 0 && (
+              <View style={styles.readyPill}>
+                <Text style={styles.readyPillText}>{readyCount} con đủ kẹo tiến hoá</Text>
+              </View>
+            )}
+          </View>
 
-          {sel && <CarePanel key={sel.key} mon={sel} candy={candy} onFeed={() => feedPokemon(sel.key)} />}
+          {/* Tìm theo tên — gõ "swamp" là ra Mega Swampert, khỏi cuộn cả bầy. */}
+          <View style={styles.searchRow}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              value={q}
+              onChangeText={setQ}
+              placeholder="Tìm theo tên Pokémon…"
+              placeholderTextColor={colors.textDim}
+              style={styles.searchInput}
+              autoCorrect={false}
+              accessibilityLabel="Tìm Pokémon theo tên"
+            />
+            {q.length > 0 && (
+              <Pressable onPress={() => setQ('')} hitSlop={8} accessibilityLabel="Xoá tìm kiếm">
+                <Text style={styles.searchClear}>✕</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {/* Chip TỰ XUỐNG DÒNG, không cuộn ngang: dải cuộn ngang cắt mất chữ chip cuối
+              ("✨ Sh…", "Mớ…") nên người chơi không đọc được có bộ lọc gì. */}
+          <View style={styles.chipWrap}>
+            {FILTERS.map((f) => (
+              <Pressable key={f.key} onPress={() => { feedbackTap(); setFilter(f.key); }}
+                style={[styles.chip, filter === f.key && styles.chipOn]}>
+                <Text style={[styles.chipText, filter === f.key && styles.chipTextOn]}>{f.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.chipWrap}>
+            <Text style={styles.sortLabel}>Xếp:</Text>
+            {SORTS.map((s) => (
+              <Pressable key={s.key} onPress={() => { feedbackTap(); setSortBy(s.key); }}
+                style={[styles.chip, sortBy === s.key && styles.chipOn]}>
+                <Text style={[styles.chipText, sortBy === s.key && styles.chipTextOn]}>{s.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.countLine}>
+            Hiện {Math.min(limit, shown.length)}/{shown.length} con
+            {shown.length !== party.length ? ` (lọc từ ${party.length})` : ''}
+          </Text>
+
+          {shown.length === 0 ? (
+            <Text style={styles.noHit}>Không con nào khớp — thử xoá bộ lọc hoặc từ khoá.</Text>
+          ) : (
+            <View style={styles.roster}>
+              {shown.slice(0, limit).map((m) => (
+                <RosterCell
+                  key={m.key}
+                  mon={m}
+                  megas={megasOf(m)}
+                  selected={sel?.key === m.key}
+                  candy={candy}
+                  size={cellSize}
+                  onSelect={() => { feedbackTap(); setSelKey(m.key); }}
+                />
+              ))}
+            </View>
+          )}
+
+          {shown.length > limit && (
+            <Pressable onPress={() => { feedbackTap(); setLimit((n) => n + PAGE); }} style={styles.moreBtn}>
+              <Text style={styles.moreBtnText}>Xem thêm {Math.min(PAGE, shown.length - limit)} con ▾</Text>
+            </Pressable>
+          )}
+
+          <Text style={styles.rosterLegend}>
+            Số trên tag = kẹo cần để lên dạng kế tiếp.{'  '}
+            <Text style={{ color: colors.green, fontWeight: '800' }}>▲</Text> đủ kẹo, nuôi được ngay ·{' '}
+            <Text style={{ color: colors.accent, fontWeight: '800' }}>🍬</Text> chưa đủ ·{' '}
+            <Text style={{ fontWeight: '800' }}>MAX</Text> hết đường nuôi
+          </Text>
         </>
       )}
     </ScrollView>
+
+    {/* Bảng nuôi của con đang chọn — mở ĐÈ lên, không phải cuộn xuống tìm. */}
+    <Modal visible={!!sel} animationType="slide" transparent onRequestClose={() => setSelKey(null)}>
+      <View style={styles.sheetRoot}>
+        <View style={styles.sheetHead}>
+          <Text style={styles.sheetTitle} numberOfLines={1}>
+            {sel ? view(sel).form.name || `#${view(sel).form.id}` : ''}
+          </Text>
+          <View style={styles.sheetCandy}><Text style={styles.candyText}>🍬 {candy}</Text></View>
+          <Pressable onPress={() => { feedbackTap(); setSelKey(null); }} hitSlop={10} style={styles.sheetClose}>
+            <Text style={styles.sheetCloseText}>✕</Text>
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={styles.sheetBody} showsVerticalScrollIndicator={false}>
+          {sel && <CarePanel key={sel.key} mon={sel} candy={candy} onFeed={() => feedPokemon(sel.key)} />}
+        </ScrollView>
+      </View>
+    </Modal>
     {arena && (
       <BattleArena
         visible={!!arena}
         team={arena.team}
         boss={arena.boss}
+        makeBoss={arena.makeBoss}
+        auraTypes={arena.auraTypes}
         tier={arena.tier}
         seed={arena.seed}
         onWin={() => reportBattleWin(arena.enc.id, arena.bossBst, arena.tier.candyMul, arena.tier.winEgg)}
@@ -343,7 +594,12 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
     : v.maxedEvo
       ? (hasMega ? `Nuôi tiếp để mở ${superName} 🔮` : '🌟 Đã tiến hoá tối đa')
       : `Bậc ${v.stage + 1}/${mon.line.length} · cho ăn để tiến hoá`;
-  const canFeed = candy > 0 && !(v.maxedEvo && !hasMega); // hết đường nuôi thì thôi
+  // Chạm trần MEGA_AFFECTION là feedPokemon() không làm gì (spend <= 0), nên nút phải TẮT.
+  // Trước đây con ĐÃ hoá Mega vẫn bấm được mà không có tác dụng.
+  const atCap = mon.affection >= MEGA_AFFECTION;
+  const canFeed = candy > 0 && !atCap && !(v.maxedEvo && !hasMega);
+  // Cùng con số với tag ở lưới chọn phía trên.
+  const g = growth(mon, megas ?? undefined);
 
   return (
     <View style={styles.care}>
@@ -362,12 +618,27 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
 
       <Pressable onPress={feed} disabled={!canFeed} style={[styles.feedBtn, !canFeed && styles.feedBtnOff]}>
         <Text style={styles.feedText}>
-          {candy <= 0 ? 'Chưa có kẹo — giữ chuỗi để tích thêm' : v.maxedEvo && !hasMega ? 'Đã nuôi tối đa 🌟' : `Cho ăn  🍬 ${Math.min(candy, 10)}`}
+          {atCap
+            ? (v.isMega ? `🔮 Đã hoá ${v.form.name} — hết đường nuôi` : 'Đã nuôi tối đa 🌟')
+            : candy <= 0
+              ? 'Chưa có kẹo — giữ chuỗi để tích thêm'
+              : v.maxedEvo && !hasMega
+                ? 'Đã nuôi tối đa 🌟'
+                : `Cho ăn  🍬 ${Math.min(candy, FEED_CHUNK)}`}
         </Text>
       </Pressable>
 
+      {g.need != null && (
+        <Text style={styles.feedNeed}>
+          {candy >= g.need
+            ? `▲ Đủ kẹo! Cần 🍬 ${g.need} nữa là lên dạng kế tiếp (mỗi lần cho ăn ${FEED_CHUNK})`
+            : `Còn thiếu 🍬 ${g.need - candy} — cần ${g.need}, đang có ${candy}`}
+        </Text>
+      )}
+
       <Text style={styles.railTitle}>Cây tiến hoá của con này</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+      {/* Tự xuống dòng thay vì cuộn ngang: dòng có Mega dài quá màn điện thoại. */}
+      <View style={styles.rail}>
         {mon.line.map((f, i) => {
           const reached = i <= v.stage;
           return (
@@ -394,7 +665,7 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
             })}
           </>
         )}
-      </ScrollView>
+      </View>
       {hasMega && (
         <Text style={styles.megaHint}>
           {multiMega
@@ -457,6 +728,56 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
   );
 }
 
+// Một ô trong lưới chọn: sprite + tag cho biết con này CÓ CẦN cho ăn không.
+//   ▲N  = đang có đủ kẹo, cho ăn là tiến lên dạng kế tiếp
+//   🍬N = còn thiếu, N là số kẹo cần
+//   MAX = chạm trần, cho ăn thêm vô ích
+// Tag là DẢI NẰM TRONG ô (không phải huy hiệu cưỡi lên viền) nên các hàng thẳng nhau.
+function RosterCell({ mon, megas, selected, candy, size, onSelect }: {
+  mon: PartyMon; megas: MegaForm[] | undefined; selected: boolean; candy: number; size: number; onSelect: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
+  const g = growth(mon, megas);
+  const name = g.form.name || `#${g.form.id}`;
+  const ready = g.need != null && candy >= g.need;
+
+  // Chưa tra xong dạng đặc biệt -> chưa gắn tag, tránh báo nhầm MAX.
+  const tag = !g.megasKnown
+    ? null
+    : g.need == null
+      ? { text: 'MAX', bg: colors.track, fg: colors.textDim, hint: 'đã tối đa' }
+      : ready
+        // Dải màu NHẠT chứ không đặc: bầy đông thì 20 dải xanh đặc nhìn rất gắt.
+        ? { text: `▲${g.need}`, bg: colors.green + '2E', fg: colors.green, hint: `đủ kẹo, cần ${g.need} để tiến hoá` }
+        : { text: `🍬${g.need}`, bg: colors.accent + '2E', fg: colors.accent, hint: `còn thiếu ${g.need - candy} kẹo` };
+
+  const TAG_H = 17;
+  return (
+    <Pressable
+      onPress={onSelect}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${name}${tag ? ` — ${tag.hint}` : ''}`}
+      style={[
+        styles.rosterCell,
+        { width: size, height: size + TAG_H },
+        selected && { borderColor: colors.primary, borderWidth: 2 },
+      ]}
+    >
+      <View style={styles.rosterArt}>
+        <CreatureImage formId={g.form.id} shiny={mon.shiny} size={size - 14} />
+        {mon.shiny && <Text style={styles.rosterShiny}>✨</Text>}
+      </View>
+      <View style={[styles.rosterTag, { height: TAG_H, backgroundColor: tag?.bg ?? 'transparent' }]}>
+        {tag && (
+          <Text style={[styles.rosterTagText, { color: tag.fg }]} numberOfLines={1}>{tag.text}</Text>
+        )}
+      </View>
+    </Pressable>
+  );
+}
+
 function RailNode({ formId, name, reached, tag, accent, selected, onPress }: { formId: number; name: string; reached: boolean; tag: string; accent: string; selected?: boolean; onPress?: () => void }) {
   const styles = useThemedStyles(makeStyles);
   const dim = !reached && !selected;
@@ -504,7 +825,8 @@ const makeStyles = (colors: Colors) =>
     feedBtnOff: { backgroundColor: colors.cardAlt },
     feedText: { color: '#fff', fontWeight: '800', fontSize: 14 },
     railTitle: { color: colors.text, fontSize: 13, fontWeight: '800', alignSelf: 'flex-start', marginTop: spacing.lg, marginBottom: spacing.sm },
-    rail: { alignItems: 'center', gap: 4, paddingRight: spacing.md },
+    rail: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 4, alignSelf: 'stretch' },
+    feedNeed: { color: colors.textDim, fontSize: 11.5, fontWeight: '700', textAlign: 'center', marginTop: spacing.sm },
     railArrow: { color: colors.textDim, fontSize: 22, marginHorizontal: 2 },
     node: { width: 78, alignItems: 'center', backgroundColor: colors.cardAlt, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.border, paddingVertical: spacing.sm },
     nodeLocked: { opacity: 0.8 },
@@ -517,8 +839,47 @@ const makeStyles = (colors: Colors) =>
     moveDot: { width: 8, height: 8, borderRadius: 4 },
     moveName: { color: colors.text, fontSize: 12, fontWeight: '800' },
     moveMeta: { color: colors.textDim, fontSize: 10.5, fontWeight: '700' },
-    roster: { gap: spacing.sm, paddingVertical: 2, paddingRight: spacing.md, marginBottom: spacing.md },
-    rosterCell: { width: 60, height: 60, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center' },
+    // Lưới tự xuống dòng (không cuộn ngang). marginBottom chừa chỗ cho tag thò ra dưới ô.
+    rosterHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginBottom: spacing.sm },
+    rosterTitle: { color: colors.text, fontSize: 13, fontWeight: '800' },
+    readyPill: { backgroundColor: colors.green + '26', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 },
+    readyPillText: { color: colors.green, fontSize: 11, fontWeight: '800' },
+    roster: { flexDirection: 'row', flexWrap: 'wrap', gap: ROSTER_GAP },
+    // Tìm / lọc / xếp
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.cardAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
+    searchIcon: { fontSize: 13 },
+    searchInput: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '600', paddingVertical: Platform.OS === 'ios' ? 10 : 6 },
+    searchClear: { color: colors.textDim, fontSize: 15, fontWeight: '900', paddingHorizontal: 2 },
+    chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', marginBottom: spacing.sm },
+    chip: { backgroundColor: colors.cardAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 5 },
+    chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+    chipText: { color: colors.textDim, fontSize: 12, fontWeight: '800' },
+    chipTextOn: { color: '#fff' },
+    sortLabel: { color: colors.textDim, fontSize: 11.5, fontWeight: '800', marginRight: 2 },
+    countLine: { color: colors.textDim, fontSize: 11.5, fontWeight: '700', marginBottom: spacing.sm },
+    noHit: { color: colors.textDim, fontSize: 13, fontWeight: '600', textAlign: 'center', paddingVertical: spacing.xl },
+    moreBtn: { alignSelf: 'center', marginTop: spacing.md, backgroundColor: colors.cardAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.xl, paddingVertical: spacing.sm },
+    moreBtnText: { color: colors.text, fontSize: 13, fontWeight: '800' },
+    // Bảng nuôi mở đè
+    sheetRoot: { flex: 1, backgroundColor: colors.bg, paddingTop: (Platform.OS === 'ios' ? 52 : (StatusBar.currentHeight ?? 24) + 8) },
+    sheetHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, borderBottomWidth: 1, borderColor: colors.border },
+    sheetTitle: { flex: 1, color: colors.text, fontSize: 19, fontWeight: '900' },
+    sheetCandy: { backgroundColor: colors.accent + '22', borderColor: colors.accent, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
+    sheetClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center' },
+    sheetCloseText: { color: colors.text, fontSize: 16, fontWeight: '900' },
+    sheetBody: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: TAB_BAR_SPACE },
+    // Danh hiệu bầy
+    rankRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+    rankPill: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 },
+    rankText: { fontSize: 12, fontWeight: '900' },
+    rankCount: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
+    // overflow hidden để dải tag bám đúng bo góc dưới của ô.
+    rosterCell: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.cardAlt, overflow: 'hidden' },
+    rosterArt: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    rosterShiny: { position: 'absolute', top: 1, left: 2, fontSize: 10 },
+    rosterTag: { alignItems: 'center', justifyContent: 'center' },
+    rosterTagText: { fontSize: 10, fontWeight: '900' },
+    rosterLegend: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginTop: spacing.md, marginBottom: spacing.md },
     // Thông tin Pokémon
     infoRow: { flexDirection: 'row', gap: spacing.sm, alignSelf: 'flex-start', marginTop: spacing.md },
     typeChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },

@@ -162,12 +162,18 @@ export interface BossTier {
   weight: number;  // trọng số random
   winEgg?: 'normal' | 'rare'; // thắng bậc này -> tặng thêm 1 trứng (đảm bảo)
 }
+// Bội máu/công hạ so với bản cũ: cơ chế 3 pha đã tự làm loãng dame người chơi (mỗi con
+// chỉ khắc được 1 trong 3 pha), nên giữ bội cũ thì bậc Khó trở lên bất khả thắng.
+// Đo bằng mô phỏng 60 seed, đội hình khắc được 3 pha (còn lệch 1 pha, chọn tối ưu sẽ cao hơn):
+//   Dễ 100% · Thường 100% · Khó 67% · Cực khó 23% · Huyền thoại 17%
+// Cùng đội đó nhưng LỆCH hệ: 32% ở Dễ, và 0-2% từ bậc Thường trở lên.
+// Khoảng cách giữa "chọn đúng" và "chọn bừa" chính là chỗ thử thách.
 export const BOSS_TIERS: BossTier[] = [
-  { key: 'easy', label: 'Dễ', color: '#22C55E', hpMul: 0.9, atkMul: 0.9, candyMul: 0.8, weight: 2 },
-  { key: 'normal', label: 'Thường', color: '#3B82F6', hpMul: 1.3, atkMul: 1.15, candyMul: 1.3, weight: 4 },
-  { key: 'hard', label: 'Khó', color: '#F97316', hpMul: 1.9, atkMul: 1.4, candyMul: 2.2, weight: 3 },
-  { key: 'elite', label: 'Cực khó', color: '#EF4444', hpMul: 2.6, atkMul: 1.75, candyMul: 4.0, weight: 2, winEgg: 'normal' },
-  { key: 'legendary', label: 'Huyền thoại', color: '#FBBF24', hpMul: 3.5, atkMul: 2.1, candyMul: 6.5, weight: 1, winEgg: 'rare' },
+  { key: 'easy', label: 'Dễ', color: '#22C55E', hpMul: 0.85, atkMul: 0.9, candyMul: 0.8, weight: 2 },
+  { key: 'normal', label: 'Thường', color: '#3B82F6', hpMul: 1.2, atkMul: 1.1, candyMul: 1.3, weight: 4 },
+  { key: 'hard', label: 'Khó', color: '#F97316', hpMul: 1.5, atkMul: 1.25, candyMul: 2.2, weight: 3 },
+  { key: 'elite', label: 'Cực khó', color: '#EF4444', hpMul: 1.7, atkMul: 1.35, candyMul: 4.0, weight: 2, winEgg: 'normal' },
+  { key: 'legendary', label: 'Huyền thoại', color: '#FBBF24', hpMul: 1.95, atkMul: 1.5, candyMul: 6.5, weight: 1, winEgg: 'rare' },
 ];
 function pickTier(r: number): BossTier {
   const total = BOSS_TIERS.reduce((s, t) => s + t.weight, 0);
@@ -177,9 +183,14 @@ function pickTier(r: number): BossTier {
 }
 
 // ===== Sự kiện boss: xuất hiện NGẪU NHIÊN trong 1 kỳ, tồn tại 1 khoảng rồi biến mất =====
-export const BOSS_PERIOD_MS = 3 * 3600_000; // mỗi kỳ 3h có đúng 1 lượt boss (giờ random trong kỳ)
-export const BOSS_WINDOW_MIN = 45;  // phút tồn tại tối thiểu
-export const BOSS_WINDOW_MAX = 120; // phút tồn tại tối đa
+// Mỗi kỳ có ĐÚNG 1 lượt boss, giờ spawn random trong kỳ.
+//
+// Kỳ 3h + cửa sổ 45-120' cho khoảng chờ trung bình 97 phút, dài nhất 172 phút — quá thưa.
+// Kỳ 1h + cửa sổ 30-50' kéo xuống trung bình ~18 phút, và chặn trần: lượt sau KHÔNG BAO
+// GIỜ cách lượt trước quá (kỳ − cửa_sổ_min) = 30 phút.
+export const BOSS_PERIOD_MS = 1 * 3600_000;
+export const BOSS_WINDOW_MIN = 30; // phút tồn tại tối thiểu
+export const BOSS_WINDOW_MAX = 50; // phút tồn tại tối đa
 
 export interface BossEncounter {
   id: number;       // = spawnAt (định danh duy nhất mỗi lượt)
@@ -188,6 +199,8 @@ export interface BossEncounter {
   species: { id: number; name: string };
   tier: BossTier;
   seed: number;     // seed mô phỏng trận
+  // Hệ của pha 2 và pha 3 (pha 1 dùng hệ gốc của loài). Tất định theo kỳ.
+  auraTypes: [string, string];
 }
 
 // Lượt boss tất định của một kỳ (giờ/độ khó/loài đều random theo seed kỳ).
@@ -198,7 +211,76 @@ export function encounterForPeriod(period: number): BossEncounter {
   const spawnAt = period * BOSS_PERIOD_MS + Math.floor(rng() * maxOffset);
   const species = BOSS_POOL[Math.floor(rng() * BOSS_POOL.length)];
   const tier = pickTier(rng());
-  return { id: spawnAt, spawnAt, expireAt: spawnAt + winLen, species, tier, seed: hashStr('seed:' + period) };
+  return {
+    id: spawnAt,
+    spawnAt,
+    expireAt: spawnAt + winLen,
+    species,
+    tier,
+    seed: hashStr('seed:' + period),
+    auraTypes: pickAuras(rng),
+  };
+}
+
+// Hai hệ "hào quang" cho pha 2 và pha 3 (pha 1 dùng hệ gốc của loài).
+// Tất định theo rng của kỳ, và khác nhau để người chơi buộc phải phủ nhiều hệ.
+function pickAuras(rng: () => number): [string, string] {
+  const a = ALL_TYPES[Math.floor(rng() * ALL_TYPES.length)];
+  let b = ALL_TYPES[Math.floor(rng() * ALL_TYPES.length)];
+  if (b === a) b = ALL_TYPES[(ALL_TYPES.indexOf(a) + 1 + Math.floor(rng() * (ALL_TYPES.length - 1))) % ALL_TYPES.length];
+  return [a, b];
+}
+
+// ===== Ba pha của boss =====
+// Mỗi pha ĐỔI HỆ, nên không con nào khắc được cả trận: phải mang 3 con phủ 3 hệ, và
+// XẾP ĐÚNG THỨ TỰ vì con thứ i được đẩy vào đúng pha i.
+export const PHASE_CUTS = [1, 2 / 3, 1 / 3]; // mốc HP mở đầu mỗi pha
+export const ENRAGE_ATK_MUL = 1.35;          // pha cuối boss nổi giận
+export const STALL_ROUNDS = 8;               // đánh chậm quá bấy nhiêu lượt trong 1 pha...
+export const STALL_REGEN = 0.05;             // ...thì boss hồi 5% máu tối đa mỗi lượt
+
+export interface BossPhase {
+  index: number;    // 0..2
+  types: string[];  // hệ của boss trong pha này
+  enraged: boolean;
+}
+
+// Bộ 3 pha của một lượt boss: pha 1 hệ gốc, pha 2 & 3 thay bằng hào quang.
+export function phasesOf(bossTypes: string[], auraTypes: [string, string]): BossPhase[] {
+  return [
+    { index: 0, types: bossTypes.length ? bossTypes : ['normal'], enraged: false },
+    { index: 1, types: [auraTypes[0]], enraged: false },
+    { index: 2, types: [auraTypes[1]], enraged: true },
+  ];
+}
+
+// Pha hiện tại theo tỉ lệ máu còn lại.
+export function phaseAt(hpRatio: number): number {
+  if (hpRatio > PHASE_CUTS[1]) return 0;
+  if (hpRatio > PHASE_CUTS[2]) return 1;
+  return 2;
+}
+
+// ===== Boss theo kịp ĐỘI HÌNH mang đi =====
+// Boss lấy từ BOSS_POOL nên BST có trần, còn bầy thì lớn vô hạn -> càng chơi càng dễ.
+//
+// Scale theo tổng BST của 3 CON MANG ĐI, không phải Sức mạnh bầy: bầy 24 con có power
+// ~9500 nhưng chỉ 3 con ra sân, nên scale theo bầy sẽ cho boss máu/công gấp 3 trong khi
+// dame người chơi không tăng -> bất khả thắng.
+export const SCALE_BASE_POWER = 1200; // ~3 con tầm trung -> không scale
+export const SCALE_MAX = 2.0;
+// ATK scale CHẬM hơn HP: cùng hệ số thì boss one-shot cả đội, trận hết hay.
+export const SCALE_ATK_SHARE = 0.5;
+
+// Bội máu boss theo đội hình.
+export function lineupScale(lineupPower: number): number {
+  if (lineupPower <= SCALE_BASE_POWER) return 1;
+  return Math.min(SCALE_MAX, lineupPower / SCALE_BASE_POWER);
+}
+
+// Bội công boss = phần nửa của bội máu (scale 2.0 -> công ×1.5).
+export function lineupAtkScale(lineupPower: number): number {
+  return 1 + (lineupScale(lineupPower) - 1) * SCALE_ATK_SHARE;
 }
 
 // Boss đang xuất hiện tại `now` (null nếu chưa/đã hết).
@@ -226,6 +308,16 @@ export type BattleEvent = {
   bossHp: number;
   faintedKey: string | null; // con vừa gục (nếu có)
   incomingKey: string | null; // con player kế tiếp vào sân (nếu có)
+  // ===== Thông tin PHA (thêm sau; UI cũ bỏ qua được) =====
+  phase?: number;        // pha hiện tại 0..2
+  bossTypes?: string[];  // hệ boss ở pha này (đổi mỗi pha)
+  // Vì sao con mới vào sân: 'faint' = con trước gục, 'phase' = đổi pha nên luân phiên.
+  incomingReason?: 'faint' | 'phase';
+  // Máu THẬT của con vừa vào sân. Con rút về giữ nguyên máu đã mất, nên UI không được
+  // mặc định vẽ đầy thanh.
+  incomingHp?: number;
+  // Boss vừa hồi máu do người chơi đánh quá chậm trong pha.
+  regen?: number;
 };
 
 export interface BattleResult {
@@ -244,61 +336,159 @@ function lcg(seed: number): () => number {
   };
 }
 
+// Bội số ngoài công thức gốc — dùng cho cơ chế đánh theo lượt (dồn lực, đòn nặng, phòng thủ).
+export interface DamageOpts {
+  atkMul?: number;   // bội CÔNG của bên ra đòn (dồn lực, đòn nặng...)
+  takenMul?: number; // bội SÁT THƯƠNG bên nhận phải chịu (<1 = đỡ được bớt)
+}
+
 // Sát thương = Công (đòn mạnh hơn) GIẢM bởi Thủ/Đ.Thủ đúng loại của đối thủ,
-// × hệ khắc × phương sai × (chí mạng nếu có).
-function damage(attacker: Combatant, defender: Combatant, rng: () => number): { dmg: number; mult: number; crit: boolean } {
+// × hệ khắc × phương sai × (chí mạng nếu có) × các bội ngoài.
+// Tách ra export để battleLive.ts dùng đúng CÙNG một công thức — hai engine lệch số là bug ngầm.
+export function rollDamage(
+  attacker: Combatant,
+  defender: Combatant,
+  rng: () => number,
+  opts: DamageOpts = {}
+): { dmg: number; mult: number; crit: boolean } {
   const mult = typeMultiplier(attacker.types, defender.types);
   const defStat = attacker.physical ? defender.defP : defender.defS;
   const variance = 0.85 + rng() * 0.15; // 0.85..1.0
   const crit = rng() < critChance(attacker.spd);
   const critM = crit ? CRIT_MULT : 1;
-  const raw = attacker.atk * (65 / (65 + defStat)) * 1.7 * mult * variance * critM;
+  const raw =
+    attacker.atk * (65 / (65 + defStat)) * 1.7 * mult * variance * critM *
+    (opts.atkMul ?? 1) * (opts.takenMul ?? 1);
   const dmg = mult === 0 ? 0 : Math.max(1, Math.round(raw));
   return { dmg, mult, crit };
 }
 
-// Đánh theo LƯỢT TIẾP SỨC: lead player đấu boss, gục thì con kế vào (đầy máu).
-// Trong mỗi vòng, con nhanh hơn (spd) đánh trước. Hết bầy -> thua; boss gục -> thắng.
-export function simulateBattle(team: Combatant[], boss: Combatant, seed: number): BattleResult {
+function damage(attacker: Combatant, defender: Combatant, rng: () => number): { dmg: number; mult: number; crit: boolean } {
+  return rollDamage(attacker, defender, rng);
+}
+
+// Đánh theo PHA. Trong mỗi vòng, con nhanh hơn (spd) đánh trước.
+//
+// Luật (chỗ tạo ra thử thách — xem thêm phasesOf/phaseAt):
+//   • Boss có 3 pha theo mốc máu, MỖI PHA ĐỔI HỆ -> không con nào khắc suốt trận.
+//   • Đổi pha thì LUÂN PHIÊN sang con kế tiếp trong đội, nên con thứ i gánh pha i:
+//     xếp sai thứ tự là mất ưu thế khắc hệ dù đội vẫn mạnh.
+//   • Con rút về GIỮ NGUYÊN máu đã mất; quay lại sân không được hồi.
+//     (Trước đây mỗi con vào sân đầy máu -> tổng HP gấp 3 boss, thắng quá dễ.)
+//   • Pha cuối boss nổi giận: ATK × ENRAGE_ATK_MUL.
+//   • Kéo dài quá STALL_ROUNDS lượt trong một pha -> boss hồi STALL_REGEN máu mỗi lượt,
+//     nên mang toàn con thủ cao rồi rùa từ từ là không xong.
+//
+// Vẫn TẤT ĐỊNH theo seed: cùng seed cho cùng kết quả ở app và web.
+export function simulateBattle(team: Combatant[], boss: Combatant, seed: number, auraTypes?: [string, string]): BattleResult {
   const rng = lcg(seed);
   const events: BattleEvent[] = [];
   const order = team.map((c) => c.key);
+  if (!team.length) return { win: false, events, boss, order };
+
+  // Không truyền hào quang -> suy tất định từ seed để hàm dùng được độc lập (test/replay).
+  const auras = auraTypes ?? pickAuras(lcg(seed ^ 0x9e3779b9));
+  const phases = phasesOf(boss.types, auras);
+
   let bossHp = boss.maxHp;
   let idx = 0;
   let cur = team[idx];
-  let curHp = cur ? cur.maxHp : 0;
+  // Máu RIÊNG từng con, giữ qua các lần ra sân.
+  const hp = new Map<string, number>(team.map((c) => [c.key, c.maxHp]));
+  let phase = 0;
+  let roundsInPhase = 0;
   const GUARD = 500;
 
-  if (!cur) return { win: false, events, boss, order };
+  // Boss ở pha hiện tại: đổi hệ, pha cuối cộng bội công.
+  const bossNow = (): Combatant => {
+    const p = phases[phase];
+    return { ...boss, types: p.types, atk: p.enraged ? Math.round(boss.atk * ENRAGE_ATK_MUL) : boss.atk };
+  };
+
+  // Con còn sống kế tiếp kể từ vị trí i (dùng cho luân phiên theo pha).
+  const nextAliveFrom = (i: number): number => {
+    for (let j = i; j < team.length; j++) if ((hp.get(team[j].key) ?? 0) > 0) return j;
+    return -1;
+  };
 
   for (let step = 0; step < GUARD; step++) {
-    if (bossHp <= 0 || idx >= team.length) break;
+    if (bossHp <= 0) break;
+    if ((hp.get(cur.key) ?? 0) <= 0) break; // hết con -> thua
 
-    // Thứ tự trong vòng: nhanh hơn trước (hoà -> player trước).
-    const playerFirst = cur.spd >= boss.spd;
+    const b = bossNow();
+    const playerFirst = cur.spd >= b.spd;
     const acts: ('player' | 'boss')[] = playerFirst ? ['player', 'boss'] : ['boss', 'player'];
+    let ended = false;
 
     for (const who of acts) {
-      if (bossHp <= 0 || idx >= team.length) break;
+      if (bossHp <= 0 || ended) break;
+
       if (who === 'player') {
-        const { dmg, mult, crit } = damage(cur, boss, rng);
+        const { dmg, mult, crit } = damage(cur, b, rng);
         bossHp = Math.max(0, bossHp - dmg);
-        events.push({ attacker: 'player', attackerKey: cur.key, defenderKey: 'boss', dmg, mult, crit, playerHp: curHp, bossHp, faintedKey: null, incomingKey: null });
+        events.push({
+          attacker: 'player', attackerKey: cur.key, defenderKey: 'boss', dmg, mult, crit,
+          playerHp: hp.get(cur.key) ?? 0, bossHp, faintedKey: null, incomingKey: null,
+          phase, bossTypes: b.types,
+        });
       } else {
-        const { dmg, mult, crit } = damage(boss, cur, rng);
-        curHp = Math.max(0, curHp - dmg);
+        const { dmg, mult, crit } = damage(b, cur, rng);
+        const left = Math.max(0, (hp.get(cur.key) ?? 0) - dmg);
+        hp.set(cur.key, left);
         let faintedKey: string | null = null;
         let incomingKey: string | null = null;
-        if (curHp <= 0) {
+
+        if (left <= 0) {
           faintedKey = cur.key;
-          idx++;
-          if (idx < team.length) {
+          const nx = nextAliveFrom(idx + 1);
+          if (nx >= 0) {
+            idx = nx;
             cur = team[idx];
-            curHp = cur.maxHp;
             incomingKey = cur.key;
+          } else {
+            ended = true; // hết con còn sống -> thua
           }
         }
-        events.push({ attacker: 'boss', attackerKey: boss.key, defenderKey: faintedKey ?? cur.key, dmg, mult, crit, playerHp: faintedKey ? 0 : curHp, bossHp, faintedKey, incomingKey });
+        events.push({
+          attacker: 'boss', attackerKey: boss.key, defenderKey: faintedKey ?? cur.key, dmg, mult, crit,
+          playerHp: faintedKey ? 0 : left, bossHp, faintedKey, incomingKey,
+          phase, bossTypes: b.types,
+          ...(incomingKey ? { incomingReason: 'faint' as const, incomingHp: hp.get(incomingKey) ?? 0 } : null),
+        });
+      }
+    }
+
+    if (bossHp <= 0 || ended) break;
+
+    // ===== Đổi pha -> luân phiên sang con kế tiếp =====
+    const nextPhase = phaseAt(bossHp / boss.maxHp);
+    if (nextPhase !== phase) {
+      phase = nextPhase;
+      roundsInPhase = 0;
+      // Con của pha này là con ở ĐÚNG vị trí `phase` trong đội (còn sống); không thì con
+      // còn sống kế tiếp. Nhờ vậy thứ tự chạm chọn = thứ tự gánh pha.
+      const want = (hp.get(team[phase]?.key ?? '') ?? 0) > 0 ? phase : nextAliveFrom(0);
+      if (want >= 0 && team[want].key !== cur.key) {
+        idx = want;
+        cur = team[idx];
+        const last = events[events.length - 1];
+        last.incomingKey = cur.key;
+        last.incomingReason = 'phase';
+        last.incomingHp = hp.get(cur.key) ?? 0;
+      }
+      continue;
+    }
+
+    // ===== Đánh chậm -> boss hồi máu =====
+    roundsInPhase++;
+    if (roundsInPhase > STALL_ROUNDS) {
+      const heal = Math.round(boss.maxHp * STALL_REGEN);
+      const before = bossHp;
+      bossHp = Math.min(boss.maxHp, bossHp + heal);
+      const last = events[events.length - 1];
+      if (last && bossHp > before) {
+        last.bossHp = bossHp;
+        last.regen = bossHp - before;
       }
     }
   }
@@ -307,6 +497,8 @@ export function simulateBattle(team: Combatant[], boss: Combatant, seed: number)
 }
 
 // ===== Sức mạnh bầy (Team Power) = tổng BST của DẠNG hiện tại mỗi con =====
+// Bốn mốc ĐẦU GAME giữ nguyên con số cũ: người chơi đã nhận kẹo theo `teamPowerClaimed`
+// (khoá theo `power`), đổi số là trao lại hoặc mất mốc.
 export const TEAM_POWER_MILESTONES: { power: number; candy: number }[] = [
   { power: 2000, candy: 150 },
   { power: 5000, candy: 300 },
@@ -314,9 +506,69 @@ export const TEAM_POWER_MILESTONES: { power: number; candy: number }[] = [
   { power: 20000, candy: 1200 },
 ];
 
+// Hết bảng thì SINH THÊM mãi — bầy lớn vô hạn nên thang mốc cũng phải vô hạn.
+// Trước đây hết mốc 20000 là thẻ đứng ở "Đã đạt mốc cao nhất", không còn gì để đuổi.
+export const TEAM_POWER_STEP = 10_000;        // khoảng cách mỗi mốc sinh thêm
+export const TEAM_POWER_STEP_CANDY = 800;     // kẹo mốc sinh thêm đầu tiên
+export const TEAM_POWER_STEP_GROWTH = 200;    // mỗi mốc sau lại nhiều hơn mốc trước
+
+export interface TeamMilestone { power: number; candy: number; index: number }
+
+// Mốc thứ `i` (0-based) của CẢ thang: trong bảng thì lấy bảng, ngoài bảng thì sinh theo STEP.
+export function teamMilestoneAt(i: number): TeamMilestone {
+  const fixed = TEAM_POWER_MILESTONES;
+  if (i < fixed.length) return { ...fixed[i], index: i };
+  const k = i - fixed.length; // 0, 1, 2...
+  return {
+    power: fixed[fixed.length - 1].power + (k + 1) * TEAM_POWER_STEP,
+    candy: TEAM_POWER_STEP_CANDY + k * TEAM_POWER_STEP_GROWTH,
+    index: i,
+  };
+}
+
+// Mọi mốc đã ĐẠT với sức mạnh này (để trao kẹo). Chặn trần vòng lặp cho an toàn.
+export function teamMilestonesUpTo(power: number): TeamMilestone[] {
+  const out: TeamMilestone[] = [];
+  for (let i = 0; i < 1000; i++) {
+    const m = teamMilestoneAt(i);
+    if (power < m.power) break;
+    out.push(m);
+  }
+  return out;
+}
+
+// Mốc KẾ TIẾP — luôn tồn tại, nên thẻ Sức mạnh bầy không bao giờ hết đích để đuổi.
+export function nextTeamMilestone(power: number): TeamMilestone {
+  return teamMilestoneAt(teamMilestonesUpTo(power).length);
+}
+
+// ===== Danh hiệu bầy — "bậc mới" nhìn thấy được, không chỉ là con số =====
+export const TEAM_RANKS: { at: number; label: string; color: string }[] = [
+  { at: 0, label: 'Tân binh', color: '#94A3B8' },
+  { at: 2_000, label: 'Huấn luyện viên', color: '#22C55E' },
+  { at: 5_000, label: 'Kỳ cựu', color: '#3B82F6' },
+  { at: 10_000, label: 'Tinh nhuệ', color: '#A855F7' },
+  { at: 20_000, label: 'Quán quân', color: '#F97316' },
+  { at: 35_000, label: 'Cao thủ', color: '#EF4444' },
+  { at: 50_000, label: 'Bậc thầy', color: '#FBBF24' },
+  { at: 75_000, label: 'Truyền kỳ', color: '#22D3EE' },
+];
+
+// Danh hiệu + số SAO. Sao đếm các mốc vượt ngoài bảng cố định, nên qua hạng cuối cùng
+// vẫn còn thứ để leo (Truyền kỳ ★1, ★2...).
+export function teamRank(power: number): { label: string; color: string; star: number } {
+  let r = TEAM_RANKS[0];
+  for (const x of TEAM_RANKS) if (power >= x.at) r = x;
+  const star = Math.max(0, teamMilestonesUpTo(power).length - TEAM_POWER_MILESTONES.length);
+  return { label: r.label, color: r.color, star };
+}
+
 // ===== Thưởng đấu boss =====
 export const BATTLE_CANDY_FACTOR = 0.3; // kẹo thắng = round(bossBST * factor * bội_độ_khó)
-export const BATTLE_EGG_EVERY = 3; // mỗi 3 trận thắng -> 1 trứng hiếm
+// Mỗi N trận thắng -> 1 trứng hiếm. Nâng 3 -> 6 khi rút kỳ boss 3h xuống 1h: số lượt/ngày
+// tăng 8 -> 24 nên mốc cũ cho ~5.8 trứng hiếm/ngày (trước là 2.5). Mốc 6 kéo về ~2.9/ngày.
+// Kẹo thì để nguyên: +60%/ngày, nhưng bầy 24 con ăn hết, và boss giờ khó hơn nhiều.
+export const BATTLE_EGG_EVERY = 6;
 
 export function battleCandy(bossBst: number, candyMul = 1): number {
   return Math.round(bossBst * BATTLE_CANDY_FACTOR * candyMul);
