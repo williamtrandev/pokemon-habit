@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    // "node" cần cho vite.config.ts và cho require() trong ../src/feedback.ts — file đó
+    // được bundler thay bằng shim, nhưng tsc vẫn đọc bản gốc.
+    "types": ["vite/client", "node"],
+    // Không dùng baseUrl (TS 7 bỏ). paths không có baseUrl được tính tương đối với tsconfig.json.
+    "paths": {
+      "@app/*": ["../src/*"],
+      "@web/*": ["./src/*"],
+      "react-native": ["./src/shims/react-native.ts"],
+      "@react-native-async-storage/async-storage": ["./src/shims/async-storage.ts"]
+    }
+  },
+  // Chỉ nêu code của web. File trong ../src được kéo vào theo import, nên chỉ những gì web
+  // thật sự dùng mới bị typecheck — screens/components native của app không bị kéo theo.
+  "include": ["src", "vite.config.ts"]
+}

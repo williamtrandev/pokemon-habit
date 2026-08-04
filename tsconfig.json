@@ -2,5 +2,9 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  // `web/` là dự án Vite riêng, có tsconfig.json và alias riêng (@app/*, @web/*, import
+  // .wav?url). tsc của app không hiểu những thứ đó, nên loại hẳn ra — kiểm tra web bằng
+  // `npm --prefix web run typecheck`.
+  "exclude": ["node_modules", "web"]
 }

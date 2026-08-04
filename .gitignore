@@ -9,6 +9,9 @@ dist/
 web-build/
 expo-env.d.ts
 
+# vite-plugin-pwa dev output
+dev-dist/
+
 # Native
 .kotlin/
 *.orig.*
