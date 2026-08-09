@@ -9,6 +9,8 @@ import {
   type LiveEvent,
   type LiveState,
   MAX_LINEUP,
+  SPECIAL_ENERGY,
+  SPECIAL_MUL,
   STAGGER_MAX,
   autoAction,
   bossAtPhase,
@@ -18,6 +20,7 @@ import {
   stepLive,
 } from '@app/battleLive';
 import { typeColor, typeLabel } from '@app/pokemonTypes';
+import { RARITY, type HeldItem } from '@app/items';
 import { feedbackComplete, feedbackEvolve, feedbackTap } from '@app/feedback';
 import { CreatureImage } from '@web/ui/components/Bits';
 
@@ -26,6 +29,8 @@ export interface Fighter {
   c: Combatant;
   shiny: boolean;
   bst: number;
+  // Món đang đeo — chỉ để HIỂN THỊ; buff đã nằm sẵn trong `c` qua applyHeld.
+  item?: HeldItem | null;
 }
 
 interface Props {
@@ -39,7 +44,7 @@ interface Props {
   auraTypes: [string, string];
   /** Dựng boss theo SỨC MẠNH ĐỘI HÌNH đã chọn (xem lineupScale trong battle.ts). */
   makeBoss: (lineupPower: number) => Combatant;
-  onWin: () => { candy: number; egg: boolean; already: boolean };
+  onWin: () => { candy: number; egg: boolean; item: HeldItem | null; already: boolean };
 }
 
 // ===== Đấu đạo trường (bản web) =====
@@ -101,7 +106,7 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
   const [dmg, setDmg] = useState<{ id: number; val: number; side: 'boss' | 'player'; mult: number; crit: boolean } | null>(
     null
   );
-  const [reward, setReward] = useState<{ candy: number; egg: boolean; already: boolean } | null>(null);
+  const [reward, setReward] = useState<{ candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null>(null);
 
   const timers = useRef<number[]>([]);
   const dmgSeq = useRef(0);
@@ -158,7 +163,8 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
         timers.current.push(
           window.setTimeout(() => {
             // Hoạt ảnh theo loại sự kiện.
-            if (e.kind === 'player-hit') {
+            if (e.kind === 'player-hit' || e.kind === 'special') {
+              if (e.kind === 'special') feedbackEvolve();
               setFx((f) => ({ lunge: 'player', hit: null, guard: false, tick: f.tick + 1 }));
               timers.current.push(
                 window.setTimeout(() => {
@@ -264,6 +270,7 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
         '2': { kind: 'block' },
         '3': { kind: 'charge' },
         '4': { kind: 'berry' },
+        '6': { kind: 'special' },
       };
       const hit = map[e.key];
       if (hit) {
@@ -435,6 +442,11 @@ function SelectView({
                           <span className="block truncate text-[14.5px] font-bold text-ink capitalize">
                             {f.shiny ? '✨ ' : ''}
                             {f.c.name}
+                            {f.item && (
+                              <span className="ml-1.5 text-[12px]" title={`${f.item.name} · ${f.item.desc}`}>
+                                {f.item.emoji}
+                              </span>
+                            )}
                           </span>
                           <span className="mt-1 flex flex-wrap gap-1">
                             {f.c.types.map((t) => (
@@ -608,6 +620,10 @@ function BossBrief({ boss, tier, phases }: { boss: Combatant; tier: { label: str
         <li>
           Đủ {STAGGER_MAX} Áp Chế là boss <span className="font-bold text-ink">choáng</span>, mất nguyên một lượt.
         </li>
+        <li>
+          Ra đòn / trúng đòn tích NỘ — đầy {SPECIAL_ENERGY} điểm là bung{' '}
+          <span className="font-bold text-ink">TUYỆT CHIÊU</span> ×{SPECIAL_MUL} xuyên phòng thủ.
+        </li>
       </ul>
     </div>
   );
@@ -639,12 +655,13 @@ function FightView({
   auto: boolean;
   fx: { lunge: 'player' | 'boss' | null; hit: 'player' | 'boss' | null; guard: boolean; tick: number };
   dmg: { id: number; val: number; side: 'boss' | 'player'; mult: number; crit: boolean } | null;
-  reward: { candy: number; egg: boolean; already: boolean } | null;
+  reward: { candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null;
   onAct: (a: LiveAction) => void;
   onToggleAuto: () => void;
   onClose: () => void;
 }) {
   const shinyOf = (key: string) => team.find((f) => f.c.key === key)?.shiny ?? false;
+  const itemOf = (key: string) => team.find((f) => f.c.key === key)?.item ?? null;
   const me = st.team[view.active];
   const bossNow = bossAtPhase(st.boss, st.phases, st.phase);
   const intent = INTENT_VI[st.intent];
@@ -746,6 +763,15 @@ function FightView({
                         ⚡ DỒN LỰC ×{CHARGE_MUL}
                       </span>
                     )}
+                    {itemOf(me.key) && (
+                      <span
+                        className="rounded-pill px-2 py-0.5 text-[10.5px] font-black"
+                        style={{ color: RARITY[itemOf(me.key)!.rarity].color, background: RARITY[itemOf(me.key)!.rarity].color + '22' }}
+                        title={`[${RARITY[itemOf(me.key)!.rarity].label}] ${itemOf(me.key)!.name} · ${itemOf(me.key)!.desc}`}
+                      >
+                        {itemOf(me.key)!.emoji} {itemOf(me.key)!.desc}
+                      </span>
+                    )}
                     <span className="nums rounded-pill bg-card-alt px-2 py-0.5 text-[10.5px] font-black text-ink-dim">
                       🍓 {st.berries}/{BERRY_COUNT}
                     </span>
@@ -758,7 +784,7 @@ function FightView({
             </div>
           </div>
 
-          <BenchStrip st={st} view={view} shinyOf={shinyOf} busy={busy} onSwap={(i) => onAct({ kind: 'swap', index: i })} />
+          <BenchStrip st={st} view={view} shinyOf={shinyOf} itemOf={itemOf} busy={busy} onSwap={(i) => onAct({ kind: 'swap', index: i })} />
 
           {/* Màn hẹp không đủ chỗ cho cột nhật ký, nhưng bỏ hẳn thì người chơi mất luôn lời
               thuật — còn tệ hơn bản điện thoại cũ (vốn có một dòng thoại). Nên ở đây giữ
@@ -812,6 +838,14 @@ function FightView({
               tone="green"
               disabled={busy || !canAct(st, { kind: 'berry' })}
               onClick={() => onAct({ kind: 'berry' })}
+            />
+            <CmdBtn
+              k="6"
+              label={`Tuyệt chiêu 🌟 ${Math.min(st.energy[st.active] ?? 0, SPECIAL_ENERGY)}/${SPECIAL_ENERGY}`}
+              hint={`×${SPECIAL_MUL} · xuyên phòng thủ · +Áp Chế`}
+              tone="violet"
+              disabled={busy || !canAct(st, { kind: 'special' })}
+              onClick={() => onAct({ kind: 'special' })}
             />
             <CmdBtn
               k="5"
@@ -979,12 +1013,14 @@ function BenchStrip({
   st,
   view,
   shinyOf,
+  itemOf,
   busy,
   onSwap,
 }: {
   st: LiveState;
   view: View;
   shinyOf: (k: string) => boolean;
+  itemOf: (k: string) => HeldItem | null;
   busy: boolean;
   onSwap: (i: number) => void;
 }) {
@@ -1014,7 +1050,9 @@ function BenchStrip({
           >
             <CreatureImage formId={c.id} shiny={shinyOf(c.key)} size={30} />
             <span className="grid gap-0.5 text-left">
-              <span className="max-w-24 truncate text-[11.5px] font-bold text-ink capitalize">{c.name}</span>
+              <span className="max-w-24 truncate text-[11.5px] font-bold text-ink capitalize">
+                {itemOf(c.key) ? `${itemOf(c.key)!.emoji} ` : ''}{c.name}
+              </span>
               <span className="block w-16">
                 <HpBar cur={hp} max={c.maxHp} />
               </span>
@@ -1029,6 +1067,7 @@ function BenchStrip({
 // Màu/khối cho từng loại sự kiện trong nhật ký.
 const LOG_TONE: Record<LiveEvent['kind'], string> = {
   'player-hit': 'text-green border-green/40',
+  special: 'text-[#E879F9] border-[#E879F9]/50',
   'boss-hit': 'text-red border-red/40',
   charge: 'text-accent border-accent/40',
   block: 'text-[#60A5FA] border-[#60A5FA]/40',
@@ -1071,7 +1110,7 @@ function LogPanel({ journal }: { journal: LiveEvent[] }) {
   );
 }
 
-type CmdTone = 'primary' | 'blue' | 'amber' | 'green' | 'plain';
+type CmdTone = 'primary' | 'blue' | 'amber' | 'green' | 'violet' | 'plain';
 
 function CmdBtn({
   k,
@@ -1093,6 +1132,7 @@ function CmdBtn({
     blue: 'border-[#3B82F6] bg-[#3B82F6]/15 text-[#93C5FD] hover:bg-[#3B82F6]/25',
     amber: 'border-accent bg-accent/15 text-accent hover:bg-accent/25',
     green: 'border-green bg-green/15 text-green hover:bg-green/25',
+    violet: 'border-[#A855F7] bg-[#A855F7]/15 text-[#E879F9] hover:bg-[#A855F7]/25',
     plain: 'border-line bg-card text-ink hover:border-primary/60',
   };
   return (
@@ -1133,7 +1173,7 @@ function ResultBar({
   onClose,
 }: {
   win: boolean;
-  reward: { candy: number; egg: boolean; already: boolean } | null;
+  reward: { candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null;
   onClose: () => void;
 }) {
   return (
@@ -1148,7 +1188,7 @@ function ResultBar({
                 reward && reward.candy > 0
                   ? `Phần thưởng: 🍬 +${reward.candy} kẹo`
                   : 'Lượt boss này đã hạ trước đó — không thêm kẹo, nhưng luyện tập tốt'
-              }${reward?.egg ? ' · 🥚 +1 trứng thưởng' : ''}`
+              }${reward?.egg ? ' · 🥚 +1 trứng thưởng' : ''}${reward?.item ? ` · ${reward.item.emoji} Rơi [${RARITY[reward.item.rarity].label}] ${reward.item.name} (${reward.item.desc}) — vào Bầy đeo cho một con!` : ''}`
             : 'Cả đội đã kiệt sức. Nuôi lớn thêm rồi quay lại phục thù.'}
         </p>
       </div>

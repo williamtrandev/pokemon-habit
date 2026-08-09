@@ -5,9 +5,10 @@ import { applyDailyDecay, toggleCompletion, intervalMs, isDoneNow, habitStreak }
 import { addHatchProgress, stageFromAffection, shinyChance, EVO_AFFECTION, MEGA_AFFECTION, FEED_CHUNK, completionCandy, STREAK_MILESTONES, EGG_PRICE, RARE_EGG_PRICE, hatchAvoidKeys, isNewCatch, recordCaught, dedupeData, lineKey } from './collection';
 import { fetchRandomLine, fetchChainForSpecies } from './species';
 import { teamMilestonesUpTo, battleCandy, BATTLE_EGG_EVERY } from './battle';
+import { HeldItem, itemByKey } from './items';
 import { fetchMegas } from './megaForms';
 import { cancelReminder, scheduleReminder, setupChannel } from './notifications';
-import { configureFeedback, feedbackComplete, feedbackEvolve } from './feedback';
+import { configureFeedback, feedbackComplete, feedbackEvolve, feedbackTap } from './feedback';
 import { todayStr } from './date';
 import type { Session } from '@supabase/supabase-js';
 import { authReady, ensureSession, onAuthChange } from './lib/auth';
@@ -40,8 +41,11 @@ interface AppContextValue {
   hatchEgg: () => void;
   // Cửa hàng: đổi kẹo lấy trứng (vào hàng chờ nở). Trả về true nếu mua được.
   buyEgg: (rare: boolean) => boolean;
-  // Thắng boss -> trao thưởng cho LƯỢT boss đó (kẹo theo độ khó; bậc khó tặng trứng; mỗi 3 trận +1 trứng hiếm).
-  reportBattleWin: (encounterId: number, bossBst: number, candyMul: number, winEgg?: 'normal' | 'rare') => { candy: number; egg: boolean; already: boolean };
+  // Thắng boss -> trao thưởng cho LƯỢT boss đó (kẹo theo độ khó; bậc khó tặng trứng; mỗi 3 trận +1 trứng hiếm;
+  // itemKey = trang bị rơi tất định của lượt — xem itemDropFor trong items.ts).
+  reportBattleWin: (encounterId: number, bossBst: number, candyMul: number, winEgg?: 'normal' | 'rare', itemKey?: string | null) => { candy: number; egg: boolean; item: HeldItem | null; already: boolean };
+  // Đeo/tháo trang bị cho MỘT con: itemKey = null là tháo. Trả về false nếu túi không còn món đó.
+  setHeldItem: (key: string, itemKey: string | null) => boolean;
   // Sức mạnh bầy đạt mốc mới -> trao kẹo. Trả về tổng kẹo vừa trao (0 nếu không có mốc mới).
   claimTeamPower: (power: number) => number;
   setSound: (on: boolean) => void;
@@ -345,11 +349,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [touch]);
 
   // Thắng boss: kẹo 1 LẦN/lượt (theo độ khó); bậc khó tặng trứng đảm bảo; mỗi BATTLE_EGG_EVERY trận +1 trứng hiếm.
-  const reportBattleWin = useCallback((encounterId: number, bossBst: number, candyMul: number, winEgg?: 'normal' | 'rare'): { candy: number; egg: boolean; already: boolean } => {
+  const reportBattleWin = useCallback((encounterId: number, bossBst: number, candyMul: number, winEgg?: 'normal' | 'rare', itemKey?: string | null): { candy: number; egg: boolean; item: HeldItem | null; already: boolean } => {
     const now = Date.now();
     const d0 = dataRef.current;
     const already = (d0.bossBeaten ?? []).includes(encounterId);
-    if (already) return { candy: 0, egg: false, already: true };
+    if (already) return { candy: 0, egg: false, item: null, already: true };
 
     const candy = battleCandy(Math.max(0, bossBst), candyMul);
     const wins = (d0.bossWins ?? 0) + 1;
@@ -357,6 +361,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (winEgg) newEggs.push({ rare: winEgg === 'rare' });        // thưởng bậc khó
     if (wins % BATTLE_EGG_EVERY === 0) newEggs.push({ rare: true }); // mốc mỗi BATTLE_EGG_EVERY trận
     const egg = newEggs.length > 0;
+    // Trang bị rơi: key lạ (phiên bản lệch) thì bỏ, kẻo túi chứa món không hiển thị được.
+    const item = itemByKey(itemKey);
 
     setData((d) => {
       const beaten = [...(d.bossBeaten ?? []), encounterId].slice(-40); // giữ 40 lượt gần nhất
@@ -366,13 +372,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         bossWins: wins,
         bossBeaten: beaten,
         pendingEggs: [...d.pendingEggs, ...newEggs],
+        ...(item ? { items: { ...(d.items ?? {}), [item.key]: ((d.items ?? {})[item.key] ?? 0) + 1 } } : null),
       });
     });
     if (egg) {
       feedbackEvolve();
       setHatchEvent({ ts: now, id: 0, shiny: true, kind: 'milestone', streak: wins });
     }
-    return { candy, egg, already: false };
+    return { candy, egg, item, already: false };
+  }, [touch]);
+
+  // Đeo/tháo trang bị cho MỘT con. Đeo = trừ túi; tháo = trả về túi; đổi món = trả món cũ.
+  const setHeldItem = useCallback((key: string, itemKey: string | null): boolean => {
+    const d0 = dataRef.current;
+    const mon = d0.party.find((m) => m.key === key);
+    if (!mon) return false;
+    if (itemKey === (mon.item ?? null)) return true; // không đổi gì
+    if (itemKey && ((d0.items ?? {})[itemKey] ?? 0) <= 0) return false; // túi hết món này
+    feedbackTap();
+    setData((d) => {
+      const bag = { ...(d.items ?? {}) };
+      const cur = d.party.find((m) => m.key === key);
+      if (!cur) return d;
+      if (cur.item) bag[cur.item] = (bag[cur.item] ?? 0) + 1; // trả món đang đeo
+      if (itemKey) {
+        if ((bag[itemKey] ?? 0) <= 0) return d; // race: túi vừa hết
+        bag[itemKey] -= 1;
+      }
+      const party = d.party.map((m) => (m.key === key ? { ...m, item: itemKey ?? undefined } : m));
+      return touch({ ...d, items: bag, party });
+    });
+    return true;
   }, [touch]);
 
   // Sức mạnh bầy: trao kẹo cho mọi mốc <= power chưa nhận.
@@ -522,6 +552,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         hatchEgg,
         buyEgg,
         reportBattleWin,
+        setHeldItem,
         claimTeamPower,
         addHabit,
         updateHabit,

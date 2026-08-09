@@ -18,6 +18,18 @@ export function statMap(stats: { name: string; value: number }[]): StatMap {
   return m;
 }
 
+// ===== Shiny mạnh hơn dạng thường =====
+// Shiny = +10% MỌI chỉ số gốc. Áp NGAY trên danh sách stat (trước toCombatant/bstFromStats)
+// nên BST hiển thị, Sức mạnh bầy và sức mạnh trong trận cùng tăng — một con số nhất quán.
+export const SHINY_STAT_MUL = 1.1;
+export function shinyStats(
+  stats: { name: string; value: number }[],
+  shiny: boolean
+): { name: string; value: number }[] {
+  if (!shiny) return stats;
+  return stats.map((s) => ({ name: s.name, value: Math.round(s.value * SHINY_STAT_MUL) }));
+}
+
 // ===== Bảng khắc hệ (tấn công) — chuẩn Pokémon =====
 // x2 = hiệu quả gấp đôi, x0.5 = kém hiệu quả, x0 = miễn nhiễm.
 type Eff = { x2: string[]; half: string[]; zero: string[] };
@@ -142,7 +154,8 @@ export const BOSS_POOL: { id: number; name: string }[] = [
 ];
 
 // Hash tất định từ chuỗi -> RNG ổn định theo kỳ (không cần server).
-function hashStr(s: string): number {
+// Export cho items.ts dùng chung (món rơi tất định theo lượt boss).
+export function hashStr(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -161,6 +174,7 @@ export interface BossTier {
   candyMul: number; // bội kẹo thưởng
   weight: number;  // trọng số random
   winEgg?: 'normal' | 'rare'; // thắng bậc này -> tặng thêm 1 trứng (đảm bảo)
+  itemChance?: number; // tỉ lệ rơi trang bị khi thắng (0..1) — xem items.ts
 }
 // Bội máu/công hạ so với bản cũ: cơ chế 3 pha đã tự làm loãng dame người chơi (mỗi con
 // chỉ khắc được 1 trong 3 pha), nên giữ bội cũ thì bậc Khó trở lên bất khả thắng.
@@ -169,11 +183,11 @@ export interface BossTier {
 // Cùng đội đó nhưng LỆCH hệ: 32% ở Dễ, và 0-2% từ bậc Thường trở lên.
 // Khoảng cách giữa "chọn đúng" và "chọn bừa" chính là chỗ thử thách.
 export const BOSS_TIERS: BossTier[] = [
-  { key: 'easy', label: 'Dễ', color: '#22C55E', hpMul: 0.85, atkMul: 0.9, candyMul: 0.8, weight: 2 },
-  { key: 'normal', label: 'Thường', color: '#3B82F6', hpMul: 1.2, atkMul: 1.1, candyMul: 1.3, weight: 4 },
-  { key: 'hard', label: 'Khó', color: '#F97316', hpMul: 1.5, atkMul: 1.25, candyMul: 2.2, weight: 3 },
-  { key: 'elite', label: 'Cực khó', color: '#EF4444', hpMul: 1.7, atkMul: 1.35, candyMul: 4.0, weight: 2, winEgg: 'normal' },
-  { key: 'legendary', label: 'Huyền thoại', color: '#FBBF24', hpMul: 1.95, atkMul: 1.5, candyMul: 6.5, weight: 1, winEgg: 'rare' },
+  { key: 'easy', label: 'Dễ', color: '#22C55E', hpMul: 0.85, atkMul: 0.9, candyMul: 0.8, weight: 2, itemChance: 0.2 },
+  { key: 'normal', label: 'Thường', color: '#3B82F6', hpMul: 1.2, atkMul: 1.1, candyMul: 1.3, weight: 4, itemChance: 0.35 },
+  { key: 'hard', label: 'Khó', color: '#F97316', hpMul: 1.5, atkMul: 1.25, candyMul: 2.2, weight: 3, itemChance: 0.55 },
+  { key: 'elite', label: 'Cực khó', color: '#EF4444', hpMul: 1.7, atkMul: 1.35, candyMul: 4.0, weight: 2, winEgg: 'normal', itemChance: 0.8 },
+  { key: 'legendary', label: 'Huyền thoại', color: '#FBBF24', hpMul: 1.95, atkMul: 1.5, candyMul: 6.5, weight: 1, winEgg: 'rare', itemChance: 1 },
 ];
 function pickTier(r: number): BossTier {
   const total = BOSS_TIERS.reduce((s, t) => s + t.weight, 0);
@@ -327,8 +341,8 @@ export interface BattleResult {
   order: string[]; // thứ tự player ra sân (key)
 }
 
-// LCG nhỏ cho phương sai đòn đánh — tất định.
-function lcg(seed: number): () => number {
+// LCG nhỏ cho phương sai đòn đánh — tất định. Export cho items.ts (random món rơi).
+export function lcg(seed: number): () => number {
   let s = seed >>> 0 || 1;
   return () => {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;

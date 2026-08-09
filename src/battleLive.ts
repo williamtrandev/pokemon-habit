@@ -54,6 +54,17 @@ export const STAGGER_SUPER = 2;   // đòn ×2 tích bấy nhiêu
 export const STAGGER_QUAD = 3;    // đòn ×4 tích bấy nhiêu
 export const STAGGER_PARRY = 3;   // ĐỠ TRÚNG một ĐÒN NẶNG -> phản đòn, tích bấy nhiêu
 
+// ===== TUYỆT CHIÊU (chiêu thức đặc biệt) =====
+// Mỗi con có thanh NỘ riêng: +1 khi ra đòn, +1 khi TRÚNG đòn boss (giữ nguyên khi rút về).
+// Đầy SPECIAL_ENERGY điểm là bung được. Khác Dồn lực ở ba chỗ, nên là nước đi riêng chứ
+// không phải "Dồn lực bản to":
+//   • Tích THỤ ĐỘNG qua giao tranh — không tốn lượt để nạp, không bị ĐÒN NẶNG phá vỡ.
+//   • XUYÊN phòng thủ của boss (Dồn lực bung vào lượt boss guard chỉ ăn nửa).
+//   • Cộng thẳng Áp Chế (kể cả khi không khắc hệ) -> đường tới choáng cho đội lệch hệ.
+export const SPECIAL_ENERGY = 4;   // số nộ để đầy thanh
+export const SPECIAL_MUL = 2.4;    // bội sát thương tuyệt chiêu
+export const STAGGER_SPECIAL = 2;  // tuyệt chiêu cộng thẳng bấy nhiêu Áp Chế
+
 // Trận tương tác dài hơn trận tự chạy, nên mốc "đánh chậm" của battle.ts (8 lượt/pha)
 // siết quá tay: chơi phòng thủ đúng bài lại bị boss hồi máu tới mức bất khả thắng.
 export const LIVE_STALL_ROUNDS = 12;
@@ -76,6 +87,7 @@ export const INTENT_VI: Record<BossIntent, { label: string; hint: string; color:
 
 export type LiveAction =
   | { kind: 'attack' }
+  | { kind: 'special' } // tuyệt chiêu — cần thanh nộ đầy
   | { kind: 'block' }
   | { kind: 'charge' }
   | { kind: 'swap'; index: number }
@@ -83,7 +95,7 @@ export type LiveAction =
 
 // Một mẩu chuyện của lượt vừa rồi — UI phát lần lượt để ra animation.
 export interface LiveEvent {
-  kind: 'player-hit' | 'boss-hit' | 'charge' | 'block' | 'swap' | 'berry' | 'break' | 'guard' | 'drain' | 'faint' | 'phase' | 'regen' | 'shatter';
+  kind: 'player-hit' | 'special' | 'boss-hit' | 'charge' | 'block' | 'swap' | 'berry' | 'break' | 'guard' | 'drain' | 'faint' | 'phase' | 'regen' | 'shatter';
   text: string;
   dmg?: number;
   mult?: number;
@@ -101,6 +113,7 @@ export interface LiveState {
   phases: BossPhase[];
   phase: number;
   charge: boolean;       // đang dồn lực
+  energy: number[];      // NỘ riêng từng con (0..SPECIAL_ENERGY), giữ nguyên khi rút về
   berries: number;
   stagger: number;
   intent: BossIntent;    // đòn boss SẼ ra ở lượt tới
@@ -144,6 +157,7 @@ export function startLive(team: Combatant[], boss: Combatant, seed: number, aura
     phases,
     phase: 0,
     charge: false,
+    energy: team.map(() => 0),
     berries: BERRY_COUNT,
     stagger: 0,
     intent: pickIntent(rng0 / 4294967296, false),
@@ -160,6 +174,7 @@ export function canAct(s: LiveState, a: LiveAction): boolean {
   if (s.over) return false;
   switch (a.kind) {
     case 'attack': return true;
+    case 'special': return (s.energy[s.active] ?? 0) >= SPECIAL_ENERGY;
     case 'block': return true;
     case 'charge': return !s.charge;
     case 'berry': return s.berries > 0 && s.hp[s.active] < s.team[s.active].maxHp;
@@ -175,6 +190,8 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
   const rng = () => { seed = lcgNext(seed); return seed / 4294967296; };
 
   const hp = [...s0.hp];
+  const energy = [...s0.energy];
+  const gainEnergy = (i: number) => { energy[i] = Math.min(SPECIAL_ENERGY, (energy[i] ?? 0) + 1); };
   let { bossHp, active, charge, berries, stagger, phase, roundsInPhase } = s0;
   const log: LiveEvent[] = [];
   const intent = s0.intent;
@@ -196,6 +213,24 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
         text: `${me.name} ra đòn${charge ? ' DỒN LỰC' : ''}! ${r.dmg} sát thương.${r.crit ? ' Chí mạng! 💥' : ''}`,
       });
       charge = false;
+      gainEnergy(active);
+      if (r.mult >= 4) stagger += STAGGER_QUAD;
+      else if (r.mult >= 2) stagger += STAGGER_SUPER;
+      break;
+    }
+    case 'special': {
+      // Tuyệt chiêu: XUYÊN phòng thủ (không nhân GUARD_TAKEN), cộng thẳng Áp Chế,
+      // vẫn cộng dồn với Dồn lực nếu đang giữ (hiếm khi làm được — phần thưởng xứng đáng).
+      const me = s0.team[active];
+      const r = rollDamage(me, boss, rng, { atkMul: SPECIAL_MUL * (charge ? CHARGE_MUL : 1) });
+      bossHp = Math.max(0, bossHp - r.dmg);
+      log.push({
+        kind: 'special', dmg: r.dmg, mult: r.mult, crit: r.crit, key: me.key,
+        text: `${me.name} tung TUYỆT CHIÊU${guarding ? ' xuyên thủng phòng thủ' : ''}! ${r.dmg} sát thương!${r.crit ? ' Chí mạng! 💥' : ''}`,
+      });
+      charge = false;
+      energy[active] = 0;
+      stagger += STAGGER_SPECIAL;
       if (r.mult >= 4) stagger += STAGGER_QUAD;
       else if (r.mult >= 2) stagger += STAGGER_SUPER;
       break;
@@ -242,6 +277,7 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
       takenMul: blocking ? BLOCK_TAKEN : action.kind === 'swap' ? SWAP_TAKEN : 1,
     });
     hp[active] = Math.max(0, hp[active] - r.dmg);
+    if (r.dmg > 0) gainEnergy(active); // trúng đòn cũng tích nộ — bị ép phòng thủ vẫn có đường tiến
     log.push({
       kind: 'boss-hit', dmg: r.dmg, mult: r.mult, crit: r.crit, key: target.key,
       text: `${s0.boss.name} ${intent === 'heavy' ? 'giáng ĐÒN NẶNG' : 'phản công'}! ${target.name} ${blocking ? 'đỡ được, chỉ' : 'mất'} ${r.dmg} HP.${r.crit ? ' Chí mạng! 💥' : ''}`,
@@ -311,7 +347,7 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
   const enragedNext = s0.phases[phase]?.enraged ?? false;
   return {
     ...s0,
-    hp, active, bossHp, charge, berries, stagger, phase, roundsInPhase, over,
+    hp, energy, active, bossHp, charge, berries, stagger, phase, roundsInPhase, over,
     intent: over ? s0.intent : pickIntent(rng(), enragedNext),
     turn: s0.turn + 1,
     rng: seed,
@@ -359,6 +395,10 @@ export function autoAction(s: LiveState): LiveAction {
     const m = typeMultiplier(c.types, bossNow.types);
     if (m > bestMult) { bestMult = m; best = i; }
   });
+
+  // Nộ đầy thì bung: lượt boss phòng thủ là điểm bung ĐẸP NHẤT (tuyệt chiêu xuyên guard,
+  // đòn thường chỉ ăn nửa), còn lại bung sớm để bắt đầu tích lại.
+  if (canAct(s, { kind: 'special' }) && s.intent !== 'heavy') return { kind: 'special' };
 
   if (s.intent === 'guard') return s.charge ? { kind: 'attack' } : { kind: 'charge' };
   if (s.intent === 'heavy') return s.charge ? { kind: 'attack' } : { kind: 'block' };

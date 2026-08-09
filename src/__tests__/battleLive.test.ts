@@ -4,6 +4,7 @@ import {
   startLive, stepLive, canAct, autoAction, bossAtPhase,
   LiveState, LiveAction, CHARGE_MUL, BERRY_COUNT, BERRY_HEAL, STAGGER_MAX,
   STAGGER_PARRY, LIVE_STALL_ROUNDS, matchupOf,
+  SPECIAL_ENERGY, SPECIAL_MUL, STAGGER_SPECIAL,
 } from '../battleLive';
 
 const stats = (hp: number, atk: number, def = 60, spd = 60) => [
@@ -288,12 +289,15 @@ describe('autoAction', () => {
   it('boss phòng thủ -> dồn lực; boss báo đòn nặng -> đỡ', () => {
     const team = [mk('a', 300, 60, ['water'])];
     const boss = mk('boss', 900, 100, ['fire'], 60, 200);
+    // Xả nộ về 0 trước khi so: `until` đánh mỗi lượt nên nộ thường ĐẦY khi tới nơi,
+    // và autoAction (đúng luật) sẽ ưu tiên bung tuyệt chiêu thay vì dồn lực.
+    const drain = (s: LiveState) => ({ ...s, energy: s.energy.map(() => 0) });
     const g = until(startLive(team, boss, 23, auras), 'guard');
-    if (!g.over) expect(autoAction({ ...g, charge: false }).kind).toBe('charge');
+    if (!g.over) expect(autoAction({ ...drain(g), charge: false }).kind).toBe('charge');
     const h = until(startLive(team, boss, 61, auras), 'heavy');
-    if (!h.over) expect(autoAction({ ...h, charge: false }).kind).toBe('block');
+    if (!h.over) expect(autoAction({ ...drain(h), charge: false }).kind).toBe('block');
     // Đang dồn lực mà đòn nặng tới -> bung ra ngay thay vì để bị phá.
-    if (!h.over) expect(autoAction({ ...h, charge: true }).kind).toBe('attack');
+    if (!h.over) expect(autoAction({ ...drain(h), charge: true }).kind).toBe('attack');
   });
 
   it('đổi sang con khắc hệ khi đòn đang VÔ HIỆU', () => {
@@ -317,5 +321,60 @@ describe('autoAction', () => {
       s = stepLive(s, a);
     }
     expect(s.over).not.toBeNull();
+  });
+});
+
+describe('tuyệt chiêu (special)', () => {
+  const team = [mk('a', 200, 100, ['water'])];
+  const boss = () => mk('boss', 800, 60, ['fire']);
+
+  it('bắt đầu 0 nộ, chưa bung được', () => {
+    const s = startLive(team, boss(), 11, auras);
+    expect(s.energy).toEqual([0]);
+    expect(canAct(s, { kind: 'special' })).toBe(false);
+  });
+
+  it('ra đòn tích nộ; trúng đòn boss cũng tích; trần là SPECIAL_ENERGY', () => {
+    // Boss trâu để trận KHÔNG kết thúc trước khi nộ đầy (over thì canAct luôn false).
+    let s = startLive([mk('a', 400, 40, ['water'])], mk('boss', 5000, 30, ['fire']), 11, auras);
+    for (let i = 0; i < 30 && !s.over && s.energy[0] < SPECIAL_ENERGY; i++) s = stepLive(s, { kind: 'attack' });
+    expect(s.over).toBeNull();
+    expect(s.energy[0]).toBe(SPECIAL_ENERGY);
+    expect(canAct(s, { kind: 'special' })).toBe(true);
+    // Đánh thêm một lượt nữa: nộ không vượt trần.
+    const more = stepLive(s, { kind: 'attack' });
+    expect(more.energy[0]).toBeLessThanOrEqual(SPECIAL_ENERGY);
+  });
+
+  it('bung: reset nộ về 0 và cộng thẳng STAGGER_SPECIAL Áp Chế', () => {
+    let s = startLive(team, boss(), 11, auras);
+    for (let i = 0; i < 30 && !s.over && s.energy[0] < SPECIAL_ENERGY; i++) s = stepLive(s, { kind: 'attack' });
+    const st0 = { ...s, stagger: 0 };
+    const next = stepLive(st0, { kind: 'special' });
+    expect(next.energy[0]).toBe(0);
+    expect(next.stagger).toBeGreaterThanOrEqual(STAGGER_SPECIAL);
+    const hit = next.log.find((e) => e.kind === 'special');
+    expect(hit).toBeTruthy();
+    expect(hit!.dmg!).toBeGreaterThan(0);
+  });
+
+  it('XUYÊN phòng thủ: cùng state lúc boss guard, tuyệt chiêu gây nhiều hơn đòn thường', () => {
+    let s = startLive(team, boss(), 11, auras);
+    s = until(s, 'guard');
+    if (s.over) return; // seed không ra guard trong 200 lượt — bỏ qua (until đã chặn vòng lặp)
+    const full = { ...s, energy: [SPECIAL_ENERGY] };
+    const dmgSpecial = stepLive(full, { kind: 'special' }).log.find((e) => e.kind === 'special')!.dmg!;
+    const dmgAttack = stepLive(full, { kind: 'attack' }).log.find((e) => e.kind === 'player-hit')!.dmg!;
+    // Cùng rng: đòn thường dính GUARD_TAKEN 0.5, tuyệt chiêu thì ×SPECIAL_MUL không giảm.
+    expect(dmgSpecial).toBeGreaterThan(dmgAttack * SPECIAL_MUL);
+  });
+
+  it('autoAction bung tuyệt chiêu khi nộ đầy (trừ lượt ĐÒN NẶNG)', () => {
+    let s = startLive(team, boss(), 11, auras);
+    s = until(s, 'strike');
+    if (s.over) return;
+    expect(autoAction({ ...s, energy: [SPECIAL_ENERGY] }).kind).toBe('special');
+    const h = until(s, 'heavy');
+    if (!h.over) expect(autoAction({ ...h, energy: [SPECIAL_ENERGY], charge: false }).kind).toBe('block');
   });
 });

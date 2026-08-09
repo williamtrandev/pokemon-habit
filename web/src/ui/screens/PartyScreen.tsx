@@ -23,10 +23,13 @@ import {
   lineupScale,
   nextBoss,
   nextTeamMilestone,
+  shinyStats,
+  SHINY_STAT_MUL,
   teamMilestonesUpTo,
   teamRank,
   toCombatant,
 } from '@app/battle';
+import { ITEMS, RARITY, applyHeld, itemByKey, itemDropFor } from '@app/items';
 import { LIVE_ATK_MUL, LIVE_HP_MUL } from '@app/battleLive';
 import { feedbackComplete, feedbackTap } from '@app/feedback';
 import { CreatureImage, ProgressBar } from '@web/ui/components/Bits';
@@ -193,10 +196,12 @@ export default function PartyScreen() {
     return g.need != null && candy >= g.need;
   }).length;
 
-  const teamPower = party.reduce((s, m) => {
+  // Shiny +10% chỉ số (shinyStats trong battle.ts) — BST hiển thị/xếp hạng phải khớp trận đấu.
+  const bstOf = (m: PartyMon) => {
     const info = infos[currentForm(m).id];
-    return s + (info ? bstFromStats(info.stats) : 0);
-  }, 0);
+    return info ? bstFromStats(shinyStats(info.stats, m.shiny)) : 0;
+  };
+  const teamPower = party.reduce((s, m) => s + bstOf(m), 0);
   const allLoaded = party.length > 0 && party.every((m) => infos[currentForm(m).id]);
 
   // Đạt mốc Sức mạnh bầy -> trao kẹo (1 lần/mốc).
@@ -219,7 +224,7 @@ export default function PartyScreen() {
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const rows = party
-      .map((m) => ({ m, g: growth(m, megasOf(m)), bst: infos[currentForm(m).id] ? bstFromStats(infos[currentForm(m).id].stats) : 0 }))
+      .map((m) => ({ m, g: growth(m, megasOf(m)), bst: bstOf(m) }))
       .filter(({ m, g }) => {
         if (needle && !searchText(m).includes(needle)) return false;
         if (filter === 'ready') return g.need != null && candy >= g.need;
@@ -287,10 +292,13 @@ export default function PartyScreen() {
       .map((m) => {
         const f = currentForm(m);
         const info = infos[f.id]!;
+        const stats = shinyStats(info.stats, m.shiny); // shiny mạnh hơn dạng thường
         return {
-          c: toCombatant(m.key, f.id, f.name || `#${f.id}`, info.types, info.stats),
+          // Trang bị áp SAU toCombatant, KHÔNG vào bst -> boss không scale theo (lợi thế ròng).
+          c: applyHeld(toCombatant(m.key, f.id, f.name || `#${f.id}`, info.types, stats), m.item),
           shiny: m.shiny,
-          bst: bstFromStats(info.stats), // cộng thành Sức mạnh đội hình -> scale boss
+          item: itemByKey(m.item), // để màn chọn/trong trận hiện món đang đeo
+          bst: bstFromStats(stats), // cộng thành Sức mạnh đội hình -> scale boss
         };
       })
       .sort((a, b) => b.c.maxHp + b.c.atk - (a.c.maxHp + a.c.atk));
@@ -576,7 +584,7 @@ export default function PartyScreen() {
           auraTypes={arena.auraTypes}
           tier={arena.tier}
           seed={arena.seed}
-          onWin={() => reportBattleWin(arena.enc.id, arena.bossBst, arena.tier.candyMul, arena.tier.winEgg)}
+          onWin={() => reportBattleWin(arena.enc.id, arena.bossBst, arena.tier.candyMul, arena.tier.winEgg, itemDropFor(arena.enc)?.key ?? null)}
           onClose={() => setArena(null)}
         />
       )}
@@ -656,6 +664,12 @@ function RosterCell({
       <span className="relative grid aspect-square place-items-center">
         <CreatureImage formId={g.form.id} shiny={mon.shiny} size={72} />
         {mon.shiny && <span className="absolute top-0 left-0 text-[11px]">✨</span>}
+        {/* Món đang đeo — nhìn lưới là biết con nào có trang bị, khỏi mở từng bảng. */}
+        {mon.item && (
+          <span className="absolute bottom-0 right-0 text-[12px]" title={itemByKey(mon.item)?.name}>
+            {itemByKey(mon.item)?.emoji}
+          </span>
+        )}
         {g.isMega && (
           <span className="absolute top-0 right-0 rounded-pill bg-accent px-1 text-[9px] font-black text-white">
             MEGA
@@ -674,7 +688,9 @@ function RosterCell({
 }
 
 function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFeed: () => void }) {
-  const { pickMega } = useApp();
+  const { pickMega, data, setHeldItem } = useApp();
+  const bag = data.items ?? {};
+  const worn = itemByKey(mon.item);
   const v = view(mon);
   const [megas, setMegas] = useState<MegaForm[] | null>(null);
   const [moves, setMoves] = useState<MoveInfo[] | null>(null);
@@ -802,6 +818,56 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
         )}
       </Card>
 
+      {/* ===== Trang bị: rơi từ boss, đeo RIÊNG từng con ===== */}
+      <Card title={worn ? `Trang bị · đang đeo ${worn.emoji} ${worn.name}` : 'Trang bị'}>
+        {worn == null && ITEMS.every((it) => (bag[it.key] ?? 0) <= 0) ? (
+          <p className="text-[12.5px] text-ink-dim">
+            Túi trống — thắng boss ở Đấu đạo trường để nhặt trang bị. Boss càng khó càng dễ rơi, và mới có cửa ra đồ Sử thi/Huyền thoại.
+          </p>
+        ) : (
+          <div className="grid gap-1.5">
+            {/* Viền + tên tô MÀU BẬC HIẾM (xám/lam/tím/vàng) — nhìn màu là biết độ quý. */}
+            {worn && (
+              <button
+                type="button"
+                onClick={() => setHeldItem(mon.key, null)}
+                className="flex items-center gap-2.5 rounded-ctl border-[1.5px] px-3 py-2 text-left transition-colors hover:brightness-110"
+                style={{ borderColor: RARITY[worn.rarity].color, background: RARITY[worn.rarity].color + '14' }}
+              >
+                <span className="text-[20px]">{worn.emoji}</span>
+                <span>
+                  <span className="block text-[12.5px] font-extrabold" style={{ color: RARITY[worn.rarity].color }}>
+                    {worn.name} · {worn.desc}
+                  </span>
+                  <span className="block text-[10.5px] font-semibold text-ink-dim">
+                    <span className="font-black" style={{ color: RARITY[worn.rarity].color }}>{RARITY[worn.rarity].label}</span> · bấm để THÁO
+                  </span>
+                </span>
+              </button>
+            )}
+            {ITEMS.filter((it) => (bag[it.key] ?? 0) > 0).map((it) => (
+              <button
+                key={it.key}
+                type="button"
+                onClick={() => setHeldItem(mon.key, it.key)}
+                className="flex items-center gap-2.5 rounded-ctl border bg-card px-3 py-2 text-left transition-colors hover:brightness-110"
+                style={{ borderColor: RARITY[it.rarity].color + '88' }}
+              >
+                <span className="text-[20px]">{it.emoji}</span>
+                <span>
+                  <span className="block text-[12.5px] font-extrabold" style={{ color: RARITY[it.rarity].color }}>
+                    {it.name} ×{bag[it.key]} · {it.desc}
+                  </span>
+                  <span className="block text-[10.5px] font-semibold text-ink-dim">
+                    <span className="font-black" style={{ color: RARITY[it.rarity].color }}>{RARITY[it.rarity].label}</span> · bấm để đeo{worn ? ' (đổi món)' : ''}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Card title="Cây tiến hoá">
         <div className="flex flex-wrap items-center justify-center gap-1">
           {mon.line.map((f, i) => {
@@ -862,8 +928,8 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
 
       {info && (
         <Card
-          title="Chỉ số gốc"
-          aside={<span className="nums text-[13px] font-black text-accent">⚡ {bstFromStats(info.stats)}</span>}
+          title={mon.shiny ? 'Chỉ số gốc ✨' : 'Chỉ số gốc'}
+          aside={<span className="nums text-[13px] font-black text-accent">⚡ {bstFromStats(shinyStats(info.stats, mon.shiny))}</span>}
         >
           <div className="mb-3 flex flex-wrap gap-2">
             {info.types.map((t) => (
@@ -882,8 +948,11 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
             {info.heightM.toFixed(1)}m · {info.weightKg.toFixed(1)}kg
           </p>
 
+          {mon.shiny && (
+            <p className="mb-2 text-[11.5px] font-bold text-accent">✨ Shiny mạnh hơn dạng thường: MỌI chỉ số ×{SHINY_STAT_MUL}</p>
+          )}
           <div className="grid gap-1.5">
-            {info.stats.map((s) => (
+            {shinyStats(info.stats, mon.shiny).map((s) => (
               <div key={s.name} className="flex items-center gap-2">
                 <span className="w-12 text-[11.5px] font-bold text-ink-dim">{STAT_VI[s.name] ?? s.name}</span>
                 <span className="h-2 flex-1 overflow-hidden rounded-pill bg-track">

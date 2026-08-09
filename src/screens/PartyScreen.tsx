@@ -10,7 +10,8 @@ import { todayStr } from '../date';
 import { fetchMegas } from '../megaForms';
 import { MegaForm, MoveInfo, fetchMoves, PokeInfo, fetchPokeInfo } from '../species';
 import { typeColor, typeLabel } from '../pokemonTypes';
-import { bstFromStats, activeBoss, nextBoss, toCombatant, nextTeamMilestone, teamMilestonesUpTo, teamRank, Combatant, BossEncounter, BossTier, lineupScale, lineupAtkScale } from '../battle';
+import { bstFromStats, shinyStats, SHINY_STAT_MUL, activeBoss, nextBoss, toCombatant, nextTeamMilestone, teamMilestonesUpTo, teamRank, Combatant, BossEncounter, BossTier, lineupScale, lineupAtkScale } from '../battle';
+import { ITEMS, RARITY, itemByKey, applyHeld, itemDropFor } from '../items';
 import { LIVE_HP_MUL, LIVE_ATK_MUL } from '../battleLive';
 import BattleArena, { Fighter } from '../components/BattleArena';
 import { Colors, radius, spacing, TAB_BAR_SPACE } from '../theme';
@@ -177,9 +178,10 @@ export default function PartyScreen() {
   }).length;
 
   // ===== Tìm / lọc / xếp bầy =====
+  // Shiny +10% chỉ số (xem shinyStats trong battle.ts) — BST hiển thị/xếp hạng phải khớp trận đấu.
   const bstOf = (m: PartyMon) => {
     const info = infos[currentForm(m).id];
-    return info ? bstFromStats(info.stats) : 0;
+    return info ? bstFromStats(shinyStats(info.stats, m.shiny)) : 0;
   };
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -207,10 +209,7 @@ export default function PartyScreen() {
   // Đổi bộ lọc thì quay lại trang đầu, kẻo đang mở 100 con rồi lọc còn 3 con.
   useEffect(() => setLimit(PAGE), [q, filter, sortBy]);
 
-  const teamPower = party.reduce((s, m) => {
-    const info = infos[currentForm(m).id];
-    return s + (info ? bstFromStats(info.stats) : 0);
-  }, 0);
+  const teamPower = party.reduce((s, m) => s + bstOf(m), 0);
   const allLoaded = party.length > 0 && party.every((m) => infos[currentForm(m).id]);
 
   // Đạt mốc Sức mạnh bầy -> trao kẹo (1 lần/mốc).
@@ -257,10 +256,13 @@ export default function PartyScreen() {
       .map((m) => {
         const f = currentForm(m);
         const info = infos[f.id]!;
+        const stats = shinyStats(info.stats, m.shiny); // shiny mạnh hơn dạng thường
         return {
-          c: toCombatant(m.key, f.id, f.name || `#${f.id}`, info.types, info.stats),
+          // Trang bị áp SAU toCombatant, KHÔNG vào bst -> boss không scale theo (lợi thế ròng).
+          c: applyHeld(toCombatant(m.key, f.id, f.name || `#${f.id}`, info.types, stats), m.item),
           shiny: m.shiny,
-          bst: bstFromStats(info.stats), // để cộng thành Sức mạnh đội hình -> scale boss
+          item: itemByKey(m.item), // để màn chọn/trong trận hiện món đang đeo
+          bst: bstFromStats(stats), // để cộng thành Sức mạnh đội hình -> scale boss
         };
       })
       .sort((a, b) => b.c.maxHp + b.c.atk - (a.c.maxHp + a.c.atk));
@@ -517,7 +519,7 @@ export default function PartyScreen() {
         auraTypes={arena.auraTypes}
         tier={arena.tier}
         seed={arena.seed}
-        onWin={() => reportBattleWin(arena.enc.id, arena.bossBst, arena.tier.candyMul, arena.tier.winEgg)}
+        onWin={() => reportBattleWin(arena.enc.id, arena.bossBst, arena.tier.candyMul, arena.tier.winEgg, itemDropFor(arena.enc)?.key ?? null)}
         onClose={() => setArena(null)}
       />
     )}
@@ -527,8 +529,10 @@ export default function PartyScreen() {
 
 function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFeed: () => void }) {
   const { colors } = useTheme();
-  const { pickMega } = useApp();
+  const { pickMega, data, setHeldItem } = useApp();
   const styles = useThemedStyles(makeStyles);
+  const bag = data.items ?? {};
+  const worn = itemByKey(mon.item);
   const v = view(mon);
   const [megas, setMegas] = useState<MegaForm[] | null>(null);
   const [moves, setMoves] = useState<MoveInfo[] | null>(null);
@@ -636,6 +640,39 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
         </Text>
       )}
 
+      {/* ===== Trang bị: rơi từ boss, đeo RIÊNG từng con. Viền/tên tô MÀU BẬC HIẾM. ===== */}
+      <Text style={styles.railTitle}>Trang bị {worn ? `· đang đeo ${worn.emoji} ${worn.name}` : ''}</Text>
+      {worn == null && ITEMS.every((it) => (bag[it.key] ?? 0) <= 0) ? (
+        <Text style={styles.megaHint}>Túi trống — thắng boss ở Đấu đạo trường để nhặt trang bị. Boss càng khó càng dễ rơi, và mới có cửa ra đồ Sử thi/Huyền thoại.</Text>
+      ) : (
+        <View style={styles.itemWrap}>
+          {worn && (
+            <Pressable onPress={() => setHeldItem(mon.key, null)}
+              style={[styles.itemChip, { borderColor: RARITY[worn.rarity].color, borderWidth: 1.5, backgroundColor: RARITY[worn.rarity].color + '14' }]}>
+              <Text style={styles.itemEmoji}>{worn.emoji}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.itemName, { color: RARITY[worn.rarity].color }]}>{worn.name} · {worn.desc}</Text>
+                <Text style={styles.itemMeta}>
+                  <Text style={{ color: RARITY[worn.rarity].color, fontWeight: '900' }}>{RARITY[worn.rarity].label}</Text> · chạm để THÁO
+                </Text>
+              </View>
+            </Pressable>
+          )}
+          {ITEMS.filter((it) => (bag[it.key] ?? 0) > 0).map((it) => (
+            <Pressable key={it.key} onPress={() => setHeldItem(mon.key, it.key)}
+              style={[styles.itemChip, { borderColor: RARITY[it.rarity].color + '88' }]}>
+              <Text style={styles.itemEmoji}>{it.emoji}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.itemName, { color: RARITY[it.rarity].color }]}>{it.name} ×{bag[it.key]} · {it.desc}</Text>
+                <Text style={styles.itemMeta}>
+                  <Text style={{ color: RARITY[it.rarity].color, fontWeight: '900' }}>{RARITY[it.rarity].label}</Text> · chạm để đeo{worn ? ' (đổi món)' : ''}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       <Text style={styles.railTitle}>Cây tiến hoá của con này</Text>
       {/* Tự xuống dòng thay vì cuộn ngang: dòng có Mega dài quá màn điện thoại. */}
       <View style={styles.rail}>
@@ -690,12 +727,16 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
           {info.flavor ? <Text style={styles.flavor}>“{info.flavor}”</Text> : null}
 
           <View style={styles.statsHead}>
-            <Text style={styles.railTitle}>Chỉ số gốc</Text>
-            <Text style={styles.statsPower}>⚡ {bstFromStats(info.stats)}</Text>
+            <Text style={styles.railTitle}>Chỉ số gốc{mon.shiny ? ' ✨' : ''}</Text>
+            <Text style={styles.statsPower}>⚡ {bstFromStats(shinyStats(info.stats, mon.shiny))}</Text>
           </View>
-          <Text style={styles.statsNote}>Chỉ số quyết định sức mạnh khi đấu đạo trường.</Text>
+          <Text style={styles.statsNote}>
+            {mon.shiny
+              ? `Shiny mạnh hơn dạng thường: MỌI chỉ số ×${SHINY_STAT_MUL}. Chỉ số quyết định sức mạnh khi đấu đạo trường.`
+              : 'Chỉ số quyết định sức mạnh khi đấu đạo trường.'}
+          </Text>
           <View style={styles.statsWrap}>
-            {info.stats.map((s) => (
+            {shinyStats(info.stats, mon.shiny).map((s) => (
               <View key={s.name} style={styles.statRow}>
                 <Text style={styles.statLabel}>{STAT_VI[s.name] ?? s.name}</Text>
                 <View style={styles.statBarBg}>
@@ -768,6 +809,8 @@ function RosterCell({ mon, megas, selected, candy, size, onSelect }: {
       <View style={styles.rosterArt}>
         <CreatureImage formId={g.form.id} shiny={mon.shiny} size={size - 14} />
         {mon.shiny && <Text style={styles.rosterShiny}>✨</Text>}
+        {/* Món đang đeo — nhìn lưới là biết con nào có trang bị, khỏi mở từng bảng. */}
+        {mon.item && <Text style={styles.rosterItem}>{itemByKey(mon.item)?.emoji}</Text>}
       </View>
       <View style={[styles.rosterTag, { height: TAG_H, backgroundColor: tag?.bg ?? 'transparent' }]}>
         {tag && (
@@ -877,6 +920,7 @@ const makeStyles = (colors: Colors) =>
     rosterCell: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.cardAlt, overflow: 'hidden' },
     rosterArt: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     rosterShiny: { position: 'absolute', top: 1, left: 2, fontSize: 10 },
+    rosterItem: { position: 'absolute', bottom: 1, right: 2, fontSize: 11 },
     rosterTag: { alignItems: 'center', justifyContent: 'center' },
     rosterTagText: { fontSize: 10, fontWeight: '900' },
     rosterLegend: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginTop: spacing.md, marginBottom: spacing.md },
@@ -886,6 +930,12 @@ const makeStyles = (colors: Colors) =>
     typeChipText: { fontSize: 12, fontWeight: '800' },
     infoMeta: { color: colors.textDim, fontSize: 12, fontWeight: '700', alignSelf: 'flex-start', marginTop: 6 },
     flavor: { color: colors.text, fontSize: 12.5, fontStyle: 'italic', lineHeight: 18, alignSelf: 'stretch', marginTop: spacing.sm },
+    // Trang bị
+    itemWrap: { alignSelf: 'stretch', gap: 6 },
+    itemChip: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: spacing.md, paddingVertical: 8 },
+    itemEmoji: { fontSize: 20 },
+    itemName: { color: colors.text, fontSize: 12.5, fontWeight: '800' },
+    itemMeta: { color: colors.textDim, fontSize: 10.5, fontWeight: '600' },
     statsHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', alignSelf: 'stretch' },
     statsPower: { color: colors.accent, fontSize: 13, fontWeight: '900', marginTop: spacing.lg },
     statsNote: { color: colors.textDim, fontSize: 11, alignSelf: 'flex-start', marginBottom: spacing.sm },

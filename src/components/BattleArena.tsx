@@ -11,15 +11,18 @@ import {
   LiveState, LiveAction, LiveEvent, BossIntent, INTENT_VI,
   startLive, stepLive, canAct, autoAction, bossAtPhase,
   MAX_LINEUP, STAGGER_MAX, CHARGE_MUL, BLOCK_TAKEN, BERRY_HEAL, BERRY_COUNT, matchupOf,
+  SPECIAL_ENERGY, SPECIAL_MUL,
 } from '../battleLive';
+import { HeldItem, RARITY } from '../items';
 import { typeColor, typeLabel } from '../pokemonTypes';
 import { Colors, radius, spacing } from '../theme';
 import { useTheme, useThemedStyles } from '../theme-context';
 import { feedbackTap, feedbackComplete, feedbackEvolve } from '../feedback';
 
 // bst = tổng chỉ số gốc của con này; cộng lại thành SỨC MẠNH ĐỘI HÌNH để scale boss.
-// Combatant không giữ stat thô nên phải mang kèm.
-export interface Fighter { c: Combatant; shiny: boolean; bst: number }
+// Combatant không giữ stat thô nên phải mang kèm. item = món đang đeo (chỉ để HIỂN THỊ —
+// buff đã nằm sẵn trong `c` qua applyHeld).
+export interface Fighter { c: Combatant; shiny: boolean; bst: number; item?: HeldItem | null }
 
 interface Props {
   visible: boolean;
@@ -33,7 +36,7 @@ interface Props {
   auraTypes: [string, string];
   /** Dựng boss theo SỨC MẠNH ĐỘI HÌNH đã chọn (xem lineupScale trong battle.ts). */
   makeBoss: (lineupPower: number) => Combatant;
-  onWin: () => { candy: number; egg: boolean; already: boolean };
+  onWin: () => { candy: number; egg: boolean; item: HeldItem | null; already: boolean };
 }
 
 const STEP = 620;    // ms mỗi mẩu sự kiện trong một lượt
@@ -97,7 +100,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
   const [log, setLog] = useState('');
   const [banner, setBanner] = useState<{ text: string; tone: 'good' | 'bad' | 'info' } | null>(null);
   const [dmg, setDmg] = useState<{ id: number; val: number; side: 'boss' | 'player'; mult: number; crit: boolean } | null>(null);
-  const [reward, setReward] = useState<{ candy: number; egg: boolean; already: boolean } | null>(null);
+  const [reward, setReward] = useState<{ candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null>(null);
 
   const autoRef = useRef(auto);
   autoRef.current = auto;
@@ -173,6 +176,13 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
         setDmg({ id, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
         setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
         setBanner(e.crit ? { text: 'Chí mạng! 💥', tone: 'good' } : (e.mult ?? 1) >= 2 ? { text: 'Hiệu quả tuyệt vời!', tone: 'good' } : (e.mult ?? 1) === 0 ? { text: 'Vô hiệu!', tone: 'bad' } : null);
+        break;
+      case 'special':
+        feedbackEvolve();
+        lunge(playerLunge); shake(bossShake);
+        setDmg({ id, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
+        setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
+        setBanner({ text: 'TUYỆT CHIÊU! 🌟', tone: 'good' });
         break;
       case 'boss-hit': {
         feedbackTap();
@@ -350,6 +360,9 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
                       <View style={[styles.multPill, { borderColor: takenColor(myTaken) }]}>
                         <Text style={[styles.multPillText, { color: takenColor(myTaken) }]}>🛡×{myTaken}</Text>
                       </View>
+                      {teamMap.get(me?.key ?? '')?.item && (
+                        <Text style={styles.heldEmoji}>{teamMap.get(me?.key ?? '')!.item!.emoji}</Text>
+                      )}
                       {st?.charge && <View style={styles.chargePill}><Text style={styles.chargePillText}>⚡</Text></View>}
                     </View>
                   }
@@ -368,6 +381,9 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
                     st={st} view={view} teamMap={teamMap} bossTypes={bossNow.types} open={swapOpen}
                     onPick={(i) => act({ kind: 'swap', index: i })} styles={styles}
                   />
+                  {/* Tuyệt chiêu: nút RIÊNG full bề rộng — nộ đầy mới sáng, kèm thanh nộ. */}
+                  <SpecialBtn energy={st.energy[st.active] ?? 0} disabled={busy || !canAct(st, { kind: 'special' })}
+                    onPress={() => act({ kind: 'special' })} styles={styles} />
                   <View style={styles.cmdGrid}>
                     <CmdBtn label="Đánh" sub={st.charge ? `bung ×${CHARGE_MUL}` : `×${myMult} hệ`} icon="⚔️"
                       tone="attack" disabled={busy} onPress={() => act({ kind: 'attack' })} styles={styles} />
@@ -478,7 +494,9 @@ function BenchRow({ st, view, teamMap, bossTypes, open, onPick, styles }: {
           <Pressable key={c.key} disabled={!alive} onPress={() => onPick(i)}
             style={[styles.benchCell, !alive && styles.btnOff]}>
             <CreatureImage formId={c.id} shiny={teamMap.get(c.key)?.shiny} size={40} />
-            <Text style={styles.benchName} numberOfLines={1}>{c.name}</Text>
+            <Text style={styles.benchName} numberOfLines={1}>
+              {teamMap.get(c.key)?.item ? `${teamMap.get(c.key)!.item!.emoji} ` : ''}{c.name}
+            </Text>
             <Text style={[styles.benchMult, { color: multColor(m) }]}>×{m}</Text>
             <View style={styles.benchHpBg}>
               <View style={[styles.benchHpFill, { width: `${Math.round(r * 100)}%`, backgroundColor: hpColor(r) }]} />
@@ -487,6 +505,29 @@ function BenchRow({ st, view, teamMap, bossTypes, open, onPick, styles }: {
         );
       })}
     </View>
+  );
+}
+
+// Nút Tuyệt chiêu + thanh NỘ. Nộ tích khi ra đòn / trúng đòn (xem battleLive.ts) — hiển thị
+// ngay trên nút để người chơi thấy mình đang "sắp có gì đó" kể cả lúc bị ép phòng thủ.
+function SpecialBtn({ energy, disabled, onPress, styles }: {
+  energy: number; disabled: boolean; onPress: () => void; styles: any;
+}) {
+  const ready = energy >= SPECIAL_ENERGY;
+  return (
+    <Pressable onPress={onPress} disabled={disabled}
+      style={[styles.special, ready ? styles.specialReady : styles.specialDim, disabled && ready && styles.btnOff]}>
+      <Text style={styles.cmdIcon}>🌟</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.cmdLabel} numberOfLines={1}>Tuyệt chiêu {ready ? '— SẴN SÀNG!' : ''}</Text>
+        <Text style={styles.cmdSub} numberOfLines={1}>×{SPECIAL_MUL} · xuyên phòng thủ · +Áp Chế</Text>
+      </View>
+      <View style={styles.energyRow}>
+        {Array.from({ length: SPECIAL_ENERGY }, (_, i) => (
+          <View key={i} style={[styles.energyPip, i < energy && styles.energyPipOn]} />
+        ))}
+      </View>
+    </Pressable>
   );
 }
 
@@ -556,6 +597,7 @@ function SelectScreen({ boss, tier, roster, picked, phases, onToggle, onStart, o
           <Text style={styles.howtoLine}>🛡️ Báo <Text style={styles.howtoKey}>ĐÒN NẶNG</Text> → Đỡ đòn: chặn {Math.round((1 - BLOCK_TAKEN) * 100)}% và PHẢN lại Áp Chế</Text>
           <Text style={styles.howtoLine}>⚡ Báo <Text style={styles.howtoKey}>Phòng thủ</Text> → Dồn lực: đòn sau ×{CHARGE_MUL}</Text>
           <Text style={styles.howtoLine}>💫 Đánh khắc hệ đủ {STAGGER_MAX} Áp Chế → boss CHOÁNG, mất một lượt</Text>
+          <Text style={styles.howtoLine}>🌟 Ra đòn / trúng đòn tích NỘ — đầy thanh bung <Text style={styles.howtoKey}>TUYỆT CHIÊU</Text> ×{SPECIAL_MUL} xuyên phòng thủ</Text>
         </View>
 
         {phases.map((ph, i) => {
@@ -608,9 +650,16 @@ function SelectScreen({ boss, tier, roster, picked, phases, onToggle, onStart, o
               </View>
               <View style={styles.pickBody}>
                 <View style={styles.pickTop}>
-                  <Text style={styles.pickName} numberOfLines={1}>{f.shiny ? '✨ ' : ''}{f.c.name}</Text>
+                  <Text style={styles.pickName} numberOfLines={1}>
+                    {f.shiny ? '✨ ' : ''}{f.c.name}{f.item ? ` ${f.item.emoji}` : ''}
+                  </Text>
                   <Text style={styles.pickBst}>⚡{f.bst}</Text>
                 </View>
+                {f.item && (
+                  <Text style={[styles.pickItem, { color: RARITY[f.item.rarity].color }]} numberOfLines={1}>
+                    {f.item.emoji} {f.item.name} · {f.item.desc}
+                  </Text>
+                )}
                 <View style={styles.chipRowLeft}>
                   {f.c.types.map((t) => (
                     <View key={t} style={[styles.tChipSm, { backgroundColor: typeColor(t) }]}>
@@ -677,7 +726,7 @@ function DmgNumber({ val, mult, crit }: { val: number; mult: number; crit: boole
   return <Animated.Text style={{ position: 'absolute', top: 6, fontSize: size, fontWeight: '900', color, transform: [{ translateY: ty }], opacity: op }}>-{val}{crit ? '!' : ''}</Animated.Text>;
 }
 
-function ResultPanel({ win, reward, onClose, styles }: { win: boolean; reward: { candy: number; egg: boolean; already: boolean } | null; onClose: () => void; styles: any }) {
+function ResultPanel({ win, reward, onClose, styles }: { win: boolean; reward: { candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null; onClose: () => void; styles: any }) {
   return (
     <>
       <Text style={styles.dockTitle}>{win ? '🏆 Chiến thắng!' : '💫 Thất bại...'}</Text>
@@ -685,6 +734,7 @@ function ResultPanel({ win, reward, onClose, styles }: { win: boolean; reward: {
         <Text style={styles.dockLine}>
           {reward && reward.candy > 0 ? `Phần thưởng: 🍬 +${reward.candy} kẹo!` : 'Lượt boss này đã hạ rồi — không thêm kẹo, nhưng luyện tập tốt!'}
           {reward?.egg ? '  ·  🥚 +Trứng thưởng!' : ''}
+          {reward?.item ? `  ·  ${reward.item.emoji} Rơi [${RARITY[reward.item.rarity].label}] ${reward.item.name} (${reward.item.desc}) — vào Bầy đeo cho một con!` : ''}
         </Text>
       ) : (
         <Text style={styles.dockLine}>Cả đội đã kiệt sức. Đổi đội hình phủ đủ 3 pha rồi quay lại phục thù!</Text>
@@ -745,6 +795,7 @@ const makeStyles = (colors: Colors) =>
     myTags: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     multPill: { borderWidth: 1.5, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 1 },
     multPillText: { fontSize: 11, fontWeight: '900' },
+    heldEmoji: { fontSize: 12 },
     chargePill: { backgroundColor: '#F59E0B', borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 2 },
     chargePillText: { color: '#fff', fontSize: 9.5, fontWeight: '900' },
     phaseChip: { borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
@@ -778,6 +829,14 @@ const makeStyles = (colors: Colors) =>
     cmd_charge: { borderColor: '#FBBF24', backgroundColor: '#FBBF241F' },
     cmd_berry: { borderColor: '#34D399', backgroundColor: '#34D3991F' },
     cmdIcon: { fontSize: 19 },
+    // Tuyệt chiêu: full bề rộng, tím — chưa đầy nộ thì mờ NHẸ (0.38 của btnOff làm thanh nộ
+    // không đọc được, mà thanh nộ chính là thứ cần thấy lúc chưa đầy).
+    special: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: radius.md, borderWidth: 1.5, borderColor: '#A855F7', backgroundColor: '#A855F722', paddingHorizontal: spacing.md, paddingVertical: 11 },
+    specialReady: { borderColor: '#E879F9', backgroundColor: '#A855F744' },
+    specialDim: { opacity: 0.72 },
+    energyRow: { flexDirection: 'row', gap: 3, alignItems: 'center' },
+    energyPip: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#475569' },
+    energyPipOn: { backgroundColor: '#E879F9', borderColor: '#F0ABFC' },
     cmdLabel: { color: '#fff', fontSize: 13.5, fontWeight: '900' },
     cmdSub: { color: '#94A3B8', fontSize: 10, fontWeight: '700' },
     dockFoot: { flexDirection: 'row', gap: spacing.sm },
@@ -844,6 +903,7 @@ const makeStyles = (colors: Colors) =>
     pickTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
     pickName: { color: '#fff', fontSize: 13.5, fontWeight: '900', flexShrink: 1 },
     pickBst: { color: '#FBBF24', fontSize: 12, fontWeight: '900' },
+    pickItem: { color: '#C084FC', fontSize: 10, fontWeight: '800' },
     multBox: { alignItems: 'center', backgroundColor: '#0F1728', borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
     multBoxPhase: { color: '#64748B', fontSize: 7.5, fontWeight: '900' },
     multBoxVal: { fontSize: 10.5, fontWeight: '900' },

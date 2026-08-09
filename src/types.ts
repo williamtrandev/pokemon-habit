@@ -89,6 +89,9 @@ export interface AppData {
   bossWins?: number;       // tổng số trận thắng (mốc mỗi 5 trận -> trứng hiếm)
   // Sức mạnh bầy: các mốc Team Power đã nhận thưởng (không trao lặp).
   teamPowerClaimed?: number[];
+  // Túi trang bị: itemKey -> số lượng CHƯA đeo (rơi khi thắng boss, xem items.ts).
+  // Đeo là trừ khỏi túi, tháo là trả về — tổng số món không đổi.
+  items?: Record<string, number>;
 }
 
 // Một Pokémon trong bầy: nuôi lớn bằng kẹo -> thân thiết tăng -> tiến hoá dọc `line`.
@@ -101,6 +104,7 @@ export interface PartyMon {
   megaId?: number; // dạng đặc biệt ĐÃ hoá của RIÊNG con này; undefined = chưa hoá/không có
   megaName?: string;
   megaChoice?: number; // dạng người chơi CHỌN để hoá (khi loài có nhiều dạng, vd Mega/Ash)
+  item?: string; // key trang bị đang đeo (buff chỉ số khi đấu boss); undefined = tay không
 }
 
 export const CURRENT_VERSION = 5;
