@@ -22,7 +22,7 @@ import {
 import { typeColor, typeLabel } from '@app/pokemonTypes';
 import { RARITY, type HeldItem } from '@app/items';
 import { feedbackComplete, feedbackEvolve, feedbackTap } from '@app/feedback';
-import { CreatureImage } from '@web/ui/components/Bits';
+import { CreatureImage, ItemSprite } from '@web/ui/components/Bits';
 
 // bst = tổng chỉ số gốc; cộng lại thành SỨC MẠNH ĐỘI HÌNH để scale boss theo đội đã chọn.
 export interface Fighter {
@@ -101,8 +101,9 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
     lunge: 'player' | 'boss' | null;
     hit: 'player' | 'boss' | null;
     guard: boolean;
+    flash: 'crit' | 'special' | null; // chớp toàn màn: chí mạng / tuyệt chiêu
     tick: number;
-  }>({ lunge: null, hit: null, guard: false, tick: 0 });
+  }>({ lunge: null, hit: null, guard: false, flash: null, tick: 0 });
   const [dmg, setDmg] = useState<{ id: number; val: number; side: 'boss' | 'player'; mult: number; crit: boolean } | null>(
     null
   );
@@ -165,21 +166,26 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
             // Hoạt ảnh theo loại sự kiện.
             if (e.kind === 'player-hit' || e.kind === 'special') {
               if (e.kind === 'special') feedbackEvolve();
-              setFx((f) => ({ lunge: 'player', hit: null, guard: false, tick: f.tick + 1 }));
+              setFx((f) => ({ ...f, lunge: 'player', hit: null, guard: false, flash: null, tick: f.tick + 1 }));
               timers.current.push(
                 window.setTimeout(() => {
                   feedbackTap();
-                  setFx((f) => ({ ...f, hit: 'boss', tick: f.tick + 1 }));
+                  setFx((f) => ({
+                    ...f,
+                    hit: 'boss',
+                    flash: e.kind === 'special' ? 'special' : e.crit ? 'crit' : f.flash,
+                    tick: f.tick + 1,
+                  }));
                   setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
                   setDmg({ id: dmgSeq.current++, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
                 }, HIT)
               );
             } else if (e.kind === 'boss-hit') {
-              setFx((f) => ({ lunge: 'boss', hit: null, guard: false, tick: f.tick + 1 }));
+              setFx((f) => ({ ...f, lunge: 'boss', hit: null, guard: false, flash: null, tick: f.tick + 1 }));
               timers.current.push(
                 window.setTimeout(() => {
                   feedbackTap();
-                  setFx((f) => ({ ...f, hit: 'player', tick: f.tick + 1 }));
+                  setFx((f) => ({ ...f, hit: 'player', flash: e.crit ? 'crit' : f.flash, tick: f.tick + 1 }));
                   setView((v) => {
                     const hp = [...v.hp];
                     hp[v.active] = Math.max(0, hp[v.active] - (e.dmg ?? 0));
@@ -220,7 +226,7 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
         window.setTimeout(() => {
           setView({ bossHp: next.bossHp, hp: [...next.hp], active: next.active });
           setDmg(null);
-          setFx({ lunge: null, hit: null, guard: false, tick: 0 });
+          setFx({ lunge: null, hit: null, guard: false, flash: null, tick: 0 });
           busyRef.current = false;
           setBusy(false);
           if (next.over === 'win') {
@@ -443,8 +449,8 @@ function SelectView({
                             {f.shiny ? '✨ ' : ''}
                             {f.c.name}
                             {f.item && (
-                              <span className="ml-1.5 text-[12px]" title={`${f.item.name} · ${f.item.desc}`}>
-                                {f.item.emoji}
+                              <span className="ml-1.5 inline-block align-middle" title={`${f.item.name} · ${f.item.desc}`}>
+                                <ItemSprite item={f.item} size={18} />
                               </span>
                             )}
                           </span>
@@ -653,7 +659,7 @@ function FightView({
   tier: { label: string; color: string };
   busy: boolean;
   auto: boolean;
-  fx: { lunge: 'player' | 'boss' | null; hit: 'player' | 'boss' | null; guard: boolean; tick: number };
+  fx: { lunge: 'player' | 'boss' | null; hit: 'player' | 'boss' | null; guard: boolean; flash: 'crit' | 'special' | null; tick: number };
   dmg: { id: number; val: number; side: 'boss' | 'player'; mult: number; crit: boolean } | null;
   reward: { candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null;
   onAct: (a: LiveAction) => void;
@@ -697,6 +703,19 @@ function FightView({
       </header>
 
       <div className="relative grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Chớp toàn màn: trắng đỏ khi CHÍ MẠNG, tím khi TUYỆT CHIÊU — đòn to phải rung màn. */}
+        {fx.flash && (
+          <div
+            key={`fl-${fx.tick}`}
+            className="anim-flash pointer-events-none absolute inset-0 z-20"
+            style={{
+              background:
+                fx.flash === 'special'
+                  ? 'radial-gradient(circle, #E879F9AA 0%, #A855F755 45%, transparent 75%)'
+                  : 'radial-gradient(circle, #FFFFFFCC 0%, #F8717155 50%, transparent 80%)',
+            }}
+          />
+        )}
         {/* ===== Sân đấu ===== */}
         <div className="scroller flex min-h-0 flex-col gap-4 p-5 lg:p-8">
           {/* Ý đồ boss: to và nằm trên cùng, vì đây là thông tin quyết định cả lượt. */}
@@ -768,11 +787,11 @@ function FightView({
                     )}
                     {itemOf(me.key) && (
                       <span
-                        className="rounded-pill px-2 py-0.5 text-[10.5px] font-black"
+                        className="flex items-center gap-1 rounded-pill px-2 py-0.5 text-[10.5px] font-black"
                         style={{ color: RARITY[itemOf(me.key)!.rarity].color, background: RARITY[itemOf(me.key)!.rarity].color + '22' }}
                         title={`[${RARITY[itemOf(me.key)!.rarity].label}] ${itemOf(me.key)!.name} · ${itemOf(me.key)!.desc}`}
                       >
-                        {itemOf(me.key)!.emoji} {itemOf(me.key)!.desc}
+                        <ItemSprite item={itemOf(me.key)!} size={16} /> {itemOf(me.key)!.desc}
                       </span>
                     )}
                     <span className="nums rounded-pill bg-card-alt px-2 py-0.5 text-[10.5px] font-black text-ink-dim">
@@ -1164,10 +1183,26 @@ function DmgNumber({ val, mult, crit }: { val: number; mult: number; crit: boole
   const color = crit ? '#F87171' : mult === 0 ? '#94A3B8' : mult >= 2 ? '#FDE047' : mult < 1 ? '#93C5FD' : '#fff';
   const size = crit ? 46 : mult >= 2 ? 38 : 30;
   return (
-    <span className="nums anim-dmg pointer-events-none absolute top-1 font-black drop-shadow" style={{ fontSize: size, color }}>
-      -{val}
-      {crit ? '!' : ''}
-    </span>
+    <>
+      {/* Vụ nổ va chạm: vòng xung kích + quầng sáng màu theo đòn — số bay lên không thôi
+          thì cú đánh không có "trọng lượng". */}
+      {val > 0 && (
+        <>
+          <span
+            className="anim-burst pointer-events-none absolute inset-0 m-auto rounded-full"
+            style={{ width: crit ? 120 : 92, height: crit ? 120 : 92, border: `3px solid ${color}` }}
+          />
+          <span
+            className="anim-burst-glow pointer-events-none absolute inset-0 m-auto rounded-full"
+            style={{ width: 70, height: 70, background: `radial-gradient(circle, ${color}66 0%, transparent 70%)` }}
+          />
+        </>
+      )}
+      <span className="nums anim-dmg pointer-events-none absolute top-1 font-black drop-shadow" style={{ fontSize: size, color }}>
+        -{val}
+        {crit ? '!' : ''}
+      </span>
+    </>
   );
 }
 
@@ -1192,9 +1227,19 @@ function ResultBar({
                 reward && reward.candy > 0
                   ? `Phần thưởng: 🍬 +${reward.candy} kẹo`
                   : 'Lượt boss này đã hạ trước đó — không thêm kẹo, nhưng luyện tập tốt'
-              }${reward?.egg ? ' · 🥚 +1 trứng thưởng' : ''}${reward?.item ? ` · ${reward.item.emoji} Rơi [${RARITY[reward.item.rarity].label}] ${reward.item.name} (${reward.item.desc}) — vào Bầy đeo cho một con!` : ''}`
+              }${reward?.egg ? ' · 🥚 +1 trứng thưởng' : ''}`
             : 'Cả đội đã kiệt sức. Nuôi lớn thêm rồi quay lại phục thù.'}
         </p>
+        {/* Món rơi: hàng riêng có ẢNH + màu bậc hiếm — chiến lợi phẩm phải ra dáng chiến lợi phẩm. */}
+        {win && reward?.item && (
+          <p
+            className="anim-pop mt-1.5 inline-flex items-center gap-2 rounded-pill border-[1.5px] px-3 py-1 text-[12.5px] font-extrabold"
+            style={{ borderColor: RARITY[reward.item.rarity].color, color: RARITY[reward.item.rarity].color, background: RARITY[reward.item.rarity].color + '14' }}
+          >
+            <ItemSprite item={reward.item} size={24} />
+            Rơi [{RARITY[reward.item.rarity].label}] {reward.item.name} · {reward.item.desc}
+          </p>
+        )}
       </div>
       <button
         type="button"

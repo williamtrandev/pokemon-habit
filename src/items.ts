@@ -20,7 +20,8 @@ export const RARITY: Record<ItemRarity, { label: string; color: string }> = {
 export interface HeldItem {
   key: string;
   name: string;
-  emoji: string;
+  emoji: string;   // fallback khi ảnh chưa tải/lỗi mạng
+  sprite: string;  // slug sprite item THẬT của PokeAPI (xem itemSpriteUrl)
   desc: string;
   rarity: ItemRarity;
   weight: number;  // trọng số TRONG bậc hiếm của nó
@@ -30,25 +31,31 @@ export interface HeldItem {
   spdMul?: number; // bội tốc độ (lượt đánh trước + tỉ lệ chí mạng)
 }
 
+// Ảnh item chính chủ từ PokeAPI — cùng host với sprite Pokémon nên service worker của web
+// đã cache sẵn (CacheFirst), offline vẫn hiện.
+export function itemSpriteUrl(item: HeldItem): string {
+  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${item.sprite}.png`;
+}
+
 // Số nhỏ có chủ đích: sát thương đã có khắc hệ ×2, buff to hơn sẽ lấn át chiến thuật
 // chọn hệ. Bậc cao = mạnh hơn + (từ Sử thi) buff HAI chỉ số.
 export const ITEMS: HeldItem[] = [
   // ── Thường: một chỉ số, nhẹ ──
-  { key: 'band',  name: 'Băng Lực',       emoji: '💪', desc: 'Công +8%',            rarity: 'common', weight: 1, atkMul: 1.08 },
-  { key: 'shell', name: 'Mai Sắt',        emoji: '🛡️', desc: 'Thủ & Đ.Thủ +10%',    rarity: 'common', weight: 1, defMul: 1.1 },
-  { key: 'boots', name: 'Giày Gió',       emoji: '👟', desc: 'Tốc độ +12%',         rarity: 'common', weight: 1, spdMul: 1.12 },
-  { key: 'heart', name: 'Ngọc Sinh Mệnh', emoji: '❤️', desc: 'HP +10%',             rarity: 'common', weight: 1, hpMul: 1.1 },
+  { key: 'band',  name: 'Băng Lực',       emoji: '💪', sprite: 'muscle-band',  desc: 'Công +8%',            rarity: 'common', weight: 1, atkMul: 1.08 },
+  { key: 'shell', name: 'Mai Sắt',        emoji: '🛡️', sprite: 'iron',         desc: 'Thủ & Đ.Thủ +10%',    rarity: 'common', weight: 1, defMul: 1.1 },
+  { key: 'boots', name: 'Giày Gió',       emoji: '👟', sprite: 'choice-scarf', desc: 'Tốc độ +12%',         rarity: 'common', weight: 1, spdMul: 1.12 },
+  { key: 'heart', name: 'Ngọc Sinh Mệnh', emoji: '❤️', sprite: 'heart-scale',  desc: 'HP +10%',             rarity: 'common', weight: 1, hpMul: 1.1 },
   // ── Hiếm: một chỉ số, đậm tay ──
-  { key: 'blade', name: 'Kiếm Ánh Sao',   emoji: '🗡️', desc: 'Công +15%',           rarity: 'rare', weight: 1, atkMul: 1.15 },
-  { key: 'aegis', name: 'Khiên Thánh',    emoji: '🔰', desc: 'Thủ & Đ.Thủ +18%',    rarity: 'rare', weight: 1, defMul: 1.18 },
-  { key: 'wing',  name: 'Cánh Phong Thần', emoji: '🪽', desc: 'Tốc độ +22%',        rarity: 'rare', weight: 1, spdMul: 1.22 },
-  { key: 'fruit', name: 'Đào Tiên',       emoji: '🍑', desc: 'HP +18%',             rarity: 'rare', weight: 1, hpMul: 1.18 },
+  { key: 'blade', name: 'Kiếm Ánh Sao',   emoji: '🗡️', sprite: 'star-piece',   desc: 'Công +15%',           rarity: 'rare', weight: 1, atkMul: 1.15 },
+  { key: 'aegis', name: 'Khiên Thánh',    emoji: '🔰', sprite: 'protector',    desc: 'Thủ & Đ.Thủ +18%',    rarity: 'rare', weight: 1, defMul: 1.18 },
+  { key: 'wing',  name: 'Cánh Phong Thần', emoji: '🪽', sprite: 'pretty-wing', desc: 'Tốc độ +22%',         rarity: 'rare', weight: 1, spdMul: 1.22 },
+  { key: 'fruit', name: 'Đào Tiên',       emoji: '🍑', sprite: 'sitrus-berry', desc: 'HP +18%',             rarity: 'rare', weight: 1, hpMul: 1.18 },
   // ── Sử thi: HAI chỉ số ──
-  { key: 'fang',  name: 'Nanh Rồng',      emoji: '🐉', desc: 'Công +15% · Tốc +10%', rarity: 'epic', weight: 1, atkMul: 1.15, spdMul: 1.1 },
-  { key: 'armor', name: 'Giáp Titan',     emoji: '🦾', desc: 'HP +12% · Thủ +12%',   rarity: 'epic', weight: 1, hpMul: 1.12, defMul: 1.12 },
+  { key: 'fang',  name: 'Nanh Rồng',      emoji: '🐉', sprite: 'dragon-fang',  desc: 'Công +15% · Tốc +10%', rarity: 'epic', weight: 1, atkMul: 1.15, spdMul: 1.1 },
+  { key: 'armor', name: 'Giáp Titan',     emoji: '🦾', sprite: 'armor-fossil', desc: 'HP +12% · Thủ +12%',   rarity: 'epic', weight: 1, hpMul: 1.12, defMul: 1.12 },
   // ── Huyền thoại: đổi cả cục diện ──
-  { key: 'crown', name: 'Vương Miện Boss', emoji: '👑', desc: 'MỌI chỉ số +12%',     rarity: 'legendary', weight: 1, hpMul: 1.12, atkMul: 1.12, defMul: 1.12, spdMul: 1.12 },
-  { key: 'orb',   name: 'Ngọc Hỗn Nguyên', emoji: '🔮', desc: 'Công +20% · HP +10%', rarity: 'legendary', weight: 1, atkMul: 1.2, hpMul: 1.1 },
+  { key: 'crown', name: 'Vương Miện Boss', emoji: '👑', sprite: 'kings-rock',  desc: 'MỌI chỉ số +12%',     rarity: 'legendary', weight: 1, hpMul: 1.12, atkMul: 1.12, defMul: 1.12, spdMul: 1.12 },
+  { key: 'orb',   name: 'Ngọc Hỗn Nguyên', emoji: '🔮', sprite: 'life-orb',    desc: 'Công +20% · HP +10%', rarity: 'legendary', weight: 1, atkMul: 1.2, hpMul: 1.1 },
 ];
 
 // Trọng số BẬC HIẾM theo độ khó boss: đồ Huyền thoại gần như chỉ ra từ boss Cực khó

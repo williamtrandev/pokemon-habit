@@ -3,6 +3,7 @@
 // CreatureImage) bằng SVG/DOM + Tailwind, giữ nguyên tỉ lệ và màu.
 import { useEffect, useState } from 'react';
 import { spriteSources } from '@app/species';
+import { itemSpriteUrl, type HeldItem } from '@app/items';
 
 // ===== Vòng tròn "xong/tổng" ở header màn Hôm nay =====
 export function ProgressRing({ done, total, size = 60, stroke = 5 }: { done: number; total: number; size?: number; stroke?: number }) {
@@ -139,6 +140,34 @@ export function CreatureImage({
         // trên cả nền tối và nền sáng (khác opacity, vốn làm bóng tan vào nền tối).
         ...(tint ? { filter: 'brightness(0) invert(0.42)' } : null),
       }}
+    />
+  );
+}
+
+// ===== Ảnh TRANG BỊ — sprite item chính chủ của PokeAPI =====
+// Lỗi tải (offline lần đầu, slug đổi) -> rớt về emoji của món, không bao giờ trống.
+export function ItemSprite({ item, size, className }: { item: HeldItem; size: number; className?: string }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [item.key]);
+
+  if (broken) {
+    return (
+      <span className={'grid place-items-center ' + (className ?? '')} style={{ width: size, height: size, fontSize: size * 0.7 }}>
+        {item.emoji}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={itemSpriteUrl(item)}
+      alt={item.name}
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      onError={() => setBroken(true)}
+      className={className}
+      style={{ width: size, height: size, objectFit: 'contain', imageRendering: 'pixelated' }}
     />
   );
 }

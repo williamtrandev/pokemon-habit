@@ -246,6 +246,19 @@
     animation: guard-pulse 420ms ease-out;
   }
 
+  /* ===== Va chạm trong trận boss =====
+     Vòng xung kích nở ra + quầng sáng tại điểm trúng đòn; chớp toàn màn cho chí mạng /
+     tuyệt chiêu. Trước đây chỉ có số bay + lắc 8px — đòn 300 sát thương nhìn y hệt đòn 30. */
+  .anim-burst {
+    animation: burst-ring 450ms ease-out forwards;
+  }
+  .anim-burst-glow {
+    animation: burst-glow 400ms ease-out forwards;
+  }
+  .anim-flash {
+    animation: flash-out 450ms ease-out forwards;
+  }
+
   .anim-confetti {
     animation-name: confetti-fall;
     animation-timing-function: linear;
@@ -259,6 +272,35 @@
 
   .anim-heart {
     animation: heart-up 1000ms ease-out forwards;
+  }
+}
+
+@keyframes burst-ring {
+  0% {
+    transform: scale(0.25);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.65);
+    opacity: 0;
+  }
+}
+@keyframes burst-glow {
+  0% {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+@keyframes flash-out {
+  0% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
   }
 }
 

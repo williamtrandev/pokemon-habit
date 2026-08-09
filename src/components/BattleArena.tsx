@@ -14,6 +14,7 @@ import {
   SPECIAL_ENERGY, SPECIAL_MUL,
 } from '../battleLive';
 import { HeldItem, RARITY } from '../items';
+import ItemSprite from './ItemSprite';
 import { typeColor, typeLabel } from '../pokemonTypes';
 import { Colors, radius, spacing } from '../theme';
 import { useTheme, useThemedStyles } from '../theme-context';
@@ -114,6 +115,14 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
   const playerShake = useRef(new Animated.Value(0)).current;
   const playerFade = useRef(new Animated.Value(1)).current;
   const guardPulse = useRef(new Animated.Value(0)).current;
+  // Chớp toàn màn cho CHÍ MẠNG / TUYỆT CHIÊU — đòn to phải khác đòn thường.
+  const flashAnim = useRef(new Animated.Value(0)).current;
+  const [flashColor, setFlashColor] = useState('#FFFFFF');
+  const flash = (color: string) => {
+    setFlashColor(color);
+    flashAnim.setValue(0.85);
+    Animated.timing(flashAnim, { toValue: 0, duration: 450, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+  };
 
   useEffect(() => {
     if (!visible) return;
@@ -173,6 +182,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
       case 'player-hit':
         feedbackTap();
         lunge(playerLunge); shake(bossShake);
+        if (e.crit) flash('#F87171');
         setDmg({ id, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
         setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
         setBanner(e.crit ? { text: 'Chí mạng! 💥', tone: 'good' } : (e.mult ?? 1) >= 2 ? { text: 'Hiệu quả tuyệt vời!', tone: 'good' } : (e.mult ?? 1) === 0 ? { text: 'Vô hiệu!', tone: 'bad' } : null);
@@ -180,6 +190,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
       case 'special':
         feedbackEvolve();
         lunge(playerLunge); shake(bossShake);
+        flash('#A855F7');
         setDmg({ id, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
         setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
         setBanner({ text: e.move ? `🌟 ${e.move}!` : 'TUYỆT CHIÊU! 🌟', tone: 'good' });
@@ -187,6 +198,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
       case 'boss-hit': {
         feedbackTap();
         lunge(bossLunge); shake(playerShake);
+        if (e.crit) flash('#F87171');
         setDmg({ id, val: e.dmg ?? 0, side: 'player', mult: e.mult ?? 1, crit: !!e.crit });
         const i = idxOfKey(s, e.key);
         setView((v) => ({ ...v, hp: v.hp.map((h, j) => (j === i ? Math.max(0, h - (e.dmg ?? 0)) : h)) }));
@@ -314,6 +326,10 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
           <>
             {/* ===== Sân đấu ===== */}
             <View style={styles.arena}>
+              <Animated.View
+                pointerEvents="none"
+                style={[StyleSheet.absoluteFill, { backgroundColor: flashColor, opacity: flashAnim, zIndex: 10 }]}
+              />
               {/* Bỏ trận giữa đường. Không có nút này thì mở arena là bị KHOÁ trong đó tới
                   khi thắng/thua — bản trước còn nút "Bỏ qua", bản này thì không. */}
               <Pressable onPress={() => { feedbackTap(); onClose(); }} style={styles.quit} hitSlop={8}>
@@ -363,7 +379,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
                         <Text style={[styles.multPillText, { color: takenColor(myTaken) }]}>🛡×{myTaken}</Text>
                       </View>
                       {teamMap.get(me?.key ?? '')?.item && (
-                        <Text style={styles.heldEmoji}>{teamMap.get(me?.key ?? '')!.item!.emoji}</Text>
+                        <ItemSprite item={teamMap.get(me?.key ?? '')!.item!} size={16} />
                       )}
                       {st?.charge && <View style={styles.chargePill}><Text style={styles.chargePillText}>⚡</Text></View>}
                     </View>
@@ -662,9 +678,12 @@ function SelectScreen({ boss, tier, roster, picked, phases, onToggle, onStart, o
                   <Text style={styles.pickBst}>⚡{f.bst}</Text>
                 </View>
                 {f.item && (
-                  <Text style={[styles.pickItem, { color: RARITY[f.item.rarity].color }]} numberOfLines={1}>
-                    {f.item.emoji} {f.item.name} · {f.item.desc}
-                  </Text>
+                  <View style={styles.pickItemRow}>
+                    <ItemSprite item={f.item} size={15} />
+                    <Text style={[styles.pickItem, { color: RARITY[f.item.rarity].color }]} numberOfLines={1}>
+                      {f.item.name} · {f.item.desc}
+                    </Text>
+                  </View>
                 )}
                 <View style={styles.chipRowLeft}>
                   {f.c.types.map((t) => (
@@ -737,11 +756,21 @@ function ResultPanel({ win, reward, onClose, styles }: { win: boolean; reward: {
     <>
       <Text style={styles.dockTitle}>{win ? '🏆 Chiến thắng!' : '💫 Thất bại...'}</Text>
       {win ? (
-        <Text style={styles.dockLine}>
-          {reward && reward.candy > 0 ? `Phần thưởng: 🍬 +${reward.candy} kẹo!` : 'Lượt boss này đã hạ rồi — không thêm kẹo, nhưng luyện tập tốt!'}
-          {reward?.egg ? '  ·  🥚 +Trứng thưởng!' : ''}
-          {reward?.item ? `  ·  ${reward.item.emoji} Rơi [${RARITY[reward.item.rarity].label}] ${reward.item.name} (${reward.item.desc}) — vào Bầy đeo cho một con!` : ''}
-        </Text>
+        <>
+          <Text style={styles.dockLine}>
+            {reward && reward.candy > 0 ? `Phần thưởng: 🍬 +${reward.candy} kẹo!` : 'Lượt boss này đã hạ rồi — không thêm kẹo, nhưng luyện tập tốt!'}
+            {reward?.egg ? '  ·  🥚 +Trứng thưởng!' : ''}
+          </Text>
+          {/* Món rơi: hàng riêng có ẢNH + màu bậc hiếm — chiến lợi phẩm phải ra dáng chiến lợi phẩm. */}
+          {reward?.item && (
+            <View style={[styles.lootRow, { borderColor: RARITY[reward.item.rarity].color, backgroundColor: RARITY[reward.item.rarity].color + '14' }]}>
+              <ItemSprite item={reward.item} size={24} />
+              <Text style={[styles.lootText, { color: RARITY[reward.item.rarity].color }]} numberOfLines={2}>
+                Rơi [{RARITY[reward.item.rarity].label}] {reward.item.name} · {reward.item.desc} — vào Bầy đeo cho một con!
+              </Text>
+            </View>
+          )}
+        </>
       ) : (
         <Text style={styles.dockLine}>Cả đội đã kiệt sức. Đổi đội hình phủ đủ 3 pha rồi quay lại phục thù!</Text>
       )}
@@ -823,6 +852,8 @@ const makeStyles = (colors: Colors) =>
     // Bảng điều khiển
     dock: { backgroundColor: '#0E1626', borderTopWidth: 1, borderColor: '#1F2A3F', padding: spacing.lg, paddingBottom: SAFE_BOTTOM, gap: spacing.sm },
     dockTitle: { color: '#fff', fontSize: 20, fontWeight: '900' },
+    lootRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 7 },
+    lootText: { fontSize: 12, fontWeight: '900', flex: 1 },
     dockLine: { color: '#CBD5E1', fontSize: 13, fontWeight: '600', lineHeight: 19, minHeight: 38 },
     intent: { borderWidth: 1.5, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 7 },
     intentLabel: { fontSize: 13.5, fontWeight: '900' },
@@ -909,7 +940,8 @@ const makeStyles = (colors: Colors) =>
     pickTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
     pickName: { color: '#fff', fontSize: 13.5, fontWeight: '900', flexShrink: 1 },
     pickBst: { color: '#FBBF24', fontSize: 12, fontWeight: '900' },
-    pickItem: { color: '#C084FC', fontSize: 10, fontWeight: '800' },
+    pickItemRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    pickItem: { color: '#C084FC', fontSize: 10, fontWeight: '800', flexShrink: 1 },
     multBox: { alignItems: 'center', backgroundColor: '#0F1728', borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
     multBoxPhase: { color: '#64748B', fontSize: 7.5, fontWeight: '900' },
     multBoxVal: { fontSize: 10.5, fontWeight: '900' },

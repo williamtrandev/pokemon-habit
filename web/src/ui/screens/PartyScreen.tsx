@@ -32,7 +32,7 @@ import {
 import { ITEMS, RARITY, applyHeld, itemByKey, itemDropFor } from '@app/items';
 import { LIVE_ATK_MUL, LIVE_HP_MUL } from '@app/battleLive';
 import { feedbackComplete, feedbackTap } from '@app/feedback';
-import { CreatureImage, ProgressBar } from '@web/ui/components/Bits';
+import { CreatureImage, ItemSprite, ProgressBar } from '@web/ui/components/Bits';
 import { Card, Page, PageHead } from '@web/ui/components/Layout';
 import Dialog from '@web/ui/components/Dialog';
 import Icon from '@web/ui/Icon';
@@ -681,11 +681,14 @@ function RosterCell({
         <CreatureImage formId={g.form.id} shiny={mon.shiny} size={72} />
         {mon.shiny && <span className="absolute top-0 left-0 text-[11px]">✨</span>}
         {/* Món đang đeo — nhìn lưới là biết con nào có trang bị, khỏi mở từng bảng. */}
-        {mon.item && (
-          <span className="absolute bottom-0 right-0 text-[12px]" title={itemByKey(mon.item)?.name}>
-            {itemByKey(mon.item)?.emoji}
-          </span>
-        )}
+        {(() => {
+          const it = itemByKey(mon.item);
+          return it ? (
+            <span className="absolute right-0 bottom-0" title={it.name}>
+              <ItemSprite item={it} size={18} />
+            </span>
+          ) : null;
+        })()}
         {g.isMega && (
           <span className="absolute top-0 right-0 rounded-pill bg-accent px-1 text-[9px] font-black text-white">
             MEGA
@@ -850,7 +853,7 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
                 className="flex items-center gap-2.5 rounded-ctl border-[1.5px] px-3 py-2 text-left transition-colors hover:brightness-110"
                 style={{ borderColor: RARITY[worn.rarity].color, background: RARITY[worn.rarity].color + '14' }}
               >
-                <span className="text-[20px]">{worn.emoji}</span>
+                <ItemSprite item={worn} size={30} />
                 <span>
                   <span className="block text-[12.5px] font-extrabold" style={{ color: RARITY[worn.rarity].color }}>
                     {worn.name} · {worn.desc}
@@ -869,7 +872,7 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
                 className="flex items-center gap-2.5 rounded-ctl border bg-card px-3 py-2 text-left transition-colors hover:brightness-110"
                 style={{ borderColor: RARITY[it.rarity].color + '88' }}
               >
-                <span className="text-[20px]">{it.emoji}</span>
+                <ItemSprite item={it} size={30} />
                 <span>
                   <span className="block text-[12.5px] font-extrabold" style={{ color: RARITY[it.rarity].color }}>
                     {it.name} ×{bag[it.key]} · {it.desc}

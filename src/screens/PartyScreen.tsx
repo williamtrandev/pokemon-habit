@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Easing, Activi
 import { useApp } from '../AppContext';
 import { PartyMon } from '../types';
 import CreatureImage from '../components/CreatureImage';
+import ItemSprite from '../components/ItemSprite';
 import ProgressBar from '../components/ProgressBar';
 import { stageFromAffection, EVO_AFFECTION, MEGA_AFFECTION, FEED_CHUNK, streakFire, currentForm, EGG_PRICE, RARE_EGG_PRICE } from '../collection';
 import { habitStreak } from '../gameLogic';
@@ -663,7 +664,7 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
           {worn && (
             <Pressable onPress={() => setHeldItem(mon.key, null)}
               style={[styles.itemChip, { borderColor: RARITY[worn.rarity].color, borderWidth: 1.5, backgroundColor: RARITY[worn.rarity].color + '14' }]}>
-              <Text style={styles.itemEmoji}>{worn.emoji}</Text>
+              <ItemSprite item={worn} size={28} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.itemName, { color: RARITY[worn.rarity].color }]}>{worn.name} · {worn.desc}</Text>
                 <Text style={styles.itemMeta}>
@@ -675,7 +676,7 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
           {ITEMS.filter((it) => (bag[it.key] ?? 0) > 0).map((it) => (
             <Pressable key={it.key} onPress={() => setHeldItem(mon.key, it.key)}
               style={[styles.itemChip, { borderColor: RARITY[it.rarity].color + '88' }]}>
-              <Text style={styles.itemEmoji}>{it.emoji}</Text>
+              <ItemSprite item={it} size={28} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.itemName, { color: RARITY[it.rarity].color }]}>{it.name} ×{bag[it.key]} · {it.desc}</Text>
                 <Text style={styles.itemMeta}>
@@ -824,7 +825,14 @@ function RosterCell({ mon, megas, selected, candy, size, onSelect }: {
         <CreatureImage formId={g.form.id} shiny={mon.shiny} size={size - 14} />
         {mon.shiny && <Text style={styles.rosterShiny}>✨</Text>}
         {/* Món đang đeo — nhìn lưới là biết con nào có trang bị, khỏi mở từng bảng. */}
-        {mon.item && <Text style={styles.rosterItem}>{itemByKey(mon.item)?.emoji}</Text>}
+        {(() => {
+          const it = itemByKey(mon.item);
+          return it ? (
+            <View style={styles.rosterItem}>
+              <ItemSprite item={it} size={16} />
+            </View>
+          ) : null;
+        })()}
       </View>
       <View style={[styles.rosterTag, { height: TAG_H, backgroundColor: tag?.bg ?? 'transparent' }]}>
         {tag && (
@@ -934,7 +942,7 @@ const makeStyles = (colors: Colors) =>
     rosterCell: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.cardAlt, overflow: 'hidden' },
     rosterArt: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     rosterShiny: { position: 'absolute', top: 1, left: 2, fontSize: 10 },
-    rosterItem: { position: 'absolute', bottom: 1, right: 2, fontSize: 11 },
+    rosterItem: { position: 'absolute', bottom: 1, right: 2 },
     rosterTag: { alignItems: 'center', justifyContent: 'center' },
     rosterTagText: { fontSize: 10, fontWeight: '900' },
     rosterLegend: { color: colors.textDim, fontSize: 11, lineHeight: 16, marginTop: spacing.md, marginBottom: spacing.md },
