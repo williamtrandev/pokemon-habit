@@ -65,6 +65,130 @@ export function streakFire(streak: number): { emoji: string; label: string } {
   return { emoji: '🔥', label: '' };
 }
 
+// ===== Bầy phải DUY NHẤT =====
+//
+// Khoá của một con là CẢ DÒNG tiến hoá, rút gọn thành "dạng cơ bản > bậc cuối":
+//
+//   • Không dùng dạng đang hiển thị: một con giữ nguyên cả dòng, nên Charmander và Charizard
+//     là CÙNG một con — nở thêm Charmander khi đã có Charizard vẫn là trùng.
+//   • Không dùng riêng dạng cơ bản: họ có NHÁNH thì mỗi nhánh là một con khác hẳn. Charcadet
+//     (935) rẽ thành Armarouge (936) hoặc Ceruledge (937); nuôi lên là hai con nhìn không
+//     liên quan gì nhau, gộp lại thì mất trắng một nhánh.
+export function baseIdOf(mon: PartyMon): number {
+  return mon.line[0]?.id ?? -1;
+}
+
+// "152>154". Dòng một bậc thì hai đầu trùng nhau ("143>143") — vẫn đúng.
+export function lineKeyOf(mon: PartyMon): string {
+  return lineKey(mon.line);
+}
+
+export function lineKey(line: { id: number }[]): string {
+  if (!line.length) return '-1>-1';
+  return `${line[0].id}>${line[line.length - 1].id}`;
+}
+
+// Shiny là một món sưu tầm KHÁC, nên (dòng, shiny) mới là khoá thật sự:
+//   • trứng thường nở ra dòng đã có  -> TRÙNG, không nhận
+//   • trứng nở ra shiny của dòng đã có -> hợp lệ, vì shiny là con chưa từng có
+//   • nở ra shiny của dòng đã có shiny -> TRÙNG
+export function partyKey(lk: string, shiny: boolean): string {
+  return `${lk}:${shiny ? 's' : 'n'}`;
+}
+
+// Những DÒNG không được nở ra nữa cho lần nở này.
+// Trứng thường né mọi dòng đã có; trứng shiny chỉ né những dòng đã có SẴN bản shiny.
+export function hatchAvoidKeys(party: PartyMon[], shiny: boolean): string[] {
+  const avoid = new Set<string>();
+  for (const m of party) {
+    if (!shiny || m.shiny) avoid.add(lineKeyOf(m));
+  }
+  return [...avoid];
+}
+
+// Con sắp nở có thật sự mới không (dùng để quyết định có nhận hay trả lại trứng).
+export function isNewCatch(party: PartyMon[], lk: string, shiny: boolean): boolean {
+  const have = new Set(party.map((m) => partyKey(lineKeyOf(m), m.shiny)));
+  return !have.has(partyKey(lk, shiny));
+}
+
+// Ghi vào Pokédex mà KHÔNG hạ cấp shiny.
+// Trước đây chỗ này gán đè: đã ghi nhận Charizard shiny, sau đó một Charmander thường tiến
+// hoá lên Charizard là ô Pokédex mất dấu shiny.
+export function recordCaught(
+  collection: AppData['collection'],
+  id: number,
+  shiny: boolean,
+  at: number
+): AppData['collection'] {
+  const prev = collection[id];
+  return {
+    ...collection,
+    [id]: { shiny: !!prev?.shiny || shiny, at: prev?.at ?? at },
+  };
+}
+
+// ===== Dọn bầy đã trùng sẵn =====
+//
+// Luật duy nhất ở trên chỉ chặn con TRÙNG MỚI. Bầy đang chơi thì đã đầy bản sao do lỗi cũ,
+// nên phải gộp lại một lần.
+//
+// Giữ con "xịn nhất" của mỗi khoá (thân thiết cao nhất -> đã hoá dạng đặc biệt -> thu trước),
+// và HOÀN LẠI kẹo bằng đúng thân thiết của những con bị gộp: kẹo đổ vào chúng là công sức
+// thật, xoá trắng là phạt oan người chơi.
+export interface DedupeResult {
+  party: PartyMon[];
+  removed: number;
+  refund: number; // kẹo trả lại (thân thiết ↔ kẹo tỉ lệ 1:1)
+}
+
+export function dedupeParty(party: PartyMon[]): DedupeResult {
+  const best = new Map<string, PartyMon>();
+  let removed = 0;
+  let refund = 0;
+
+  // Con nào đáng giữ hơn giữa hai bản trùng.
+  const better = (a: PartyMon, b: PartyMon): PartyMon => {
+    if (a.affection !== b.affection) return a.affection > b.affection ? a : b;
+    if (!!a.megaId !== !!b.megaId) return a.megaId ? a : b;
+    return a.at <= b.at ? a : b; // thu được trước thì giữ
+  };
+
+  for (const mon of party) {
+    const k = partyKey(lineKeyOf(mon), mon.shiny);
+    const cur = best.get(k);
+    if (!cur) {
+      best.set(k, mon);
+      continue;
+    }
+    const keep = better(cur, mon);
+    const drop = keep === cur ? mon : cur;
+    best.set(k, keep);
+    removed += 1;
+    refund += Math.max(0, Math.round(drop.affection));
+  }
+
+  // Giữ nguyên thứ tự xuất hiện đầu tiên để bầy không bị xáo tung sau khi dọn.
+  const seen = new Set<string>();
+  const out: PartyMon[] = [];
+  for (const mon of party) {
+    const k = partyKey(lineKeyOf(mon), mon.shiny);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(best.get(k)!);
+  }
+
+  return { party: out, removed, refund };
+}
+
+// Dọn bầy trong AppData. Không có gì trùng -> trả về ĐÚNG object cũ, nên gọi mỗi lần load
+// cũng không tạo ghi thừa.
+export function dedupeData(data: AppData): AppData {
+  const r = dedupeParty(data.party ?? []);
+  if (!r.removed) return data;
+  return { ...data, party: r.party, candy: (data.candy ?? 0) + r.refund };
+}
+
 export interface HatchResult {
   data: AppData;
   newEggs: number; // số trứng vừa đủ điểm (chờ chạm để nở)

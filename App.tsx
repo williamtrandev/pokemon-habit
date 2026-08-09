@@ -99,7 +99,14 @@ function HatchOverlay() {
   return (
     <Animated.View style={[styles.overlay, { opacity }]} pointerEvents="none">
       <Animated.View style={[styles.overlayCard, { transform: [{ scale }] }]}>
-        {shown.kind === 'milestone' ? (
+        {shown.kind === 'duplicate' ? (
+          <>
+            <Text style={styles.overlayBurst}>🥚</Text>
+            <Text style={{ fontSize: 90 }}>🔍</Text>
+            <Text style={styles.overlayTitle}>Chưa tìm được loài mới</Text>
+            <Text style={styles.overlaySub}>Bầy đã có hết những loài bốc trúng — trứng vẫn còn, thử lại nhé!</Text>
+          </>
+        ) : shown.kind === 'milestone' ? (
           <>
             <Text style={styles.overlayBurst}>🎉🔥🎉</Text>
             <Text style={{ fontSize: 90 }}>🥚✨</Text>

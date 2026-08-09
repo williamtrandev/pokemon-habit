@@ -52,6 +52,13 @@ const FALLBACK_LINE: CreatureForm[] = [
   { id: 6, name: 'Charizard' },
 ];
 
+// Khoá nhận dạng một dòng: "cơ bản>bậc cuối". Trùng định nghĩa với lineKey trong
+// collection.ts — để ở đây một bản nữa cho species.ts không phải phụ thuộc ngược lại.
+function lineKeyOfForms(line: CreatureForm[]): string {
+  if (!line.length) return '-1>-1';
+  return `${line[0].id}>${line[line.length - 1].id}`;
+}
+
 // Lấy dòng tiến hoá theo chainId (dạng cơ bản + các bậc sau, đi theo nhánh đầu).
 // Có CACHE để lazy-load trong Pokédex: mỗi chain chỉ fetch 1 lần.
 export interface EvoChain {
@@ -60,6 +67,13 @@ export interface EvoChain {
 }
 const chainCache = new Map<number, EvoChain | null>();
 const chainInflight = new Map<number, Promise<EvoChain | null>>();
+
+// Chỉ dùng cho test: cache sống suốt vòng đời module nên hai bài test liền nhau sẽ dính
+// dữ liệu của nhau.
+export function resetChainCache(): void {
+  chainCache.clear();
+  chainInflight.clear();
+}
 // Giới hạn số fetch song song: cuộn Pokédex làm ~18 ô gọi cùng lúc -> PokéAPI 429.
 let chainActive = 0;
 const chainWaiters: (() => void)[] = [];
@@ -217,34 +231,76 @@ export async function fetchChainForSpecies(speciesId: number): Promise<EvoChain 
   }
 }
 
-// Lấy một dòng tiến hoá ngẫu nhiên (1..3 dạng). Có retry + dự phòng khi offline.
-export async function fetchRandomLine(avoidIds: number[] = []): Promise<{ line: CreatureForm[]; color: string }> {
-  for (let tries = 0; tries < 6; tries++) {
-    const chainId = 1 + Math.floor(Math.random() * MAX_EVO_CHAIN);
-    try {
-      const res = await fetch(`https://pokeapi.co/api/v2/evolution-chain/${chainId}`);
-      if (!res.ok) continue;
-      const json = await res.json();
-      const line: CreatureForm[] = [];
-      let node: any = json.chain;
-      while (node && line.length < 3) {
-        line.push({ id: idFromUrl(node.species.url), name: cap(node.species.name) });
-        const nexts = node.evolves_to;
-        node = nexts && nexts.length ? nexts[Math.floor(Math.random() * nexts.length)] : null;
-      }
-      if (line.length >= 1) {
-        const finalId = line[line.length - 1].id;
-        // Ưu tiên loài CÓ tiến hoá (≥2 bậc) để pet còn đổi hình được; loài đơn-bậc
-        // (vd Dedenne) sẽ không bao giờ "tiến hoá". Nới ràng buộc ở 2 lượt cuối để tránh kẹt.
-        if (line.length < 2 && tries < 4) continue;
-        if (avoidIds.includes(finalId) && tries < 4) continue; // tránh trùng nếu còn lượt
-        return { line, color: colorForId(finalId) };
-      }
-    } catch {
-      // mạng lỗi -> thử tiếp
-    }
+// Bao nhiêu chuỗi hỏng LIÊN TIẾP thì coi như mạng chết và dừng sớm.
+// Không đặt trần cứng cho số lượt: khi Pokédex gần đầy, "còn đúng một họ chưa có" là trường
+// hợp PHẢI tìm ra được, mà trần cứng lại làm nó báo nhầm là hết loài mới. Mỗi chuỗi chỉ tải
+// một lần rồi nằm cache vĩnh viễn, nên duyệt sâu cũng không tốn thêm mạng cho lần sau.
+const PICK_MAX_MISSES = 8;
+
+export interface RandomLine {
+  line: CreatureForm[];
+  color: string;
+  /** true = buộc phải trả về một dòng ĐÃ CÓ vì không tìm được dòng mới nào. */
+  duplicate: boolean;
+}
+
+// Lấy một dòng tiến hoá ngẫu nhiên CHƯA CÓ trong bầy.
+//
+// `avoidLineKeys` là khoá "cơ bản>bậc cuối" (xem lineKey trong collection.ts): bầy giữ nguyên
+// cả dòng nên hai con cùng dòng là trùng dù đang ở bậc khác nhau, nhưng hai NHÁNH khác nhau
+// của cùng một họ (Charcadet → Armarouge / Ceruledge) là hai con khác hẳn.
+//
+// Bản trước bốc `Math.random()` mỗi lượt trong 6 lượt và CHỈ né trùng ở 4 lượt đầu — hai lượt
+// cuối trả về loài trùng vô điều kiện, nên bầy đông là gặp trùng thường xuyên. Ngoài ra nó
+// bốc có lặp (rất dễ thử lại đúng chuỗi vừa loại) và tự gọi fetch thẳng, bỏ qua cache +
+// hàng đợi 429 của fetchEvolutionChain.
+//
+// Giờ: xáo trộn CẢ danh sách chuỗi rồi duyệt KHÔNG LẶP cho tới khi gặp dòng mới. Chỉ chấp
+// nhận dòng trùng khi đã duyệt hết mà thật sự không còn dòng nào mới.
+export async function fetchRandomLine(avoidLineKeys: string[] = []): Promise<RandomLine> {
+  const avoid = new Set(avoidLineKeys);
+  // Xáo Fisher-Yates toàn mảng: bầy trống thì lượt đầu đã trúng, bầy gần đầy thì vẫn moi
+  // được họ cuối cùng còn thiếu.
+  const pool = Array.from({ length: MAX_EVO_CHAIN }, (_, i) => i + 1);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  return { line: FALLBACK_LINE, color: colorForId(6) };
+
+  // Dự phòng theo thứ tự ưu tiên giảm dần, chỉ dùng khi không có dòng nào hoàn toàn mới.
+  let ownedMultiStage: CreatureForm[] | null = null; // đã có, nhưng nhiều bậc
+  let freshSingleStage: CreatureForm[] | null = null; // mới, nhưng chỉ một bậc
+  let misses = 0; // số chuỗi hỏng LIÊN TIẾP -> phanh khi mất mạng
+
+  for (const chainId of pool) {
+    // Dùng chung fetchEvolutionChain với Pokédex: được cache, retry 429 và giới hạn song song.
+    // Đổi lại, họ có NHÁNH (Eevee, Wurmple...) luôn đi nhánh đầu thay vì bốc ngẫu nhiên —
+    // đúng bằng cây mà Pokédex vẽ, nên nở ra con nào là khớp với con đã xem trước đó.
+    const chain = await fetchEvolutionChain(chainId);
+    if (!chain || !chain.line.length) {
+      // Mất mạng thì mỗi chuỗi ngốn mấy giây backoff; duyệt hết 549 chuỗi là treo hẳn app.
+      if (++misses >= PICK_MAX_MISSES) break;
+      continue;
+    }
+    misses = 0;
+
+    const line = chain.line;
+    const fresh = !avoid.has(lineKeyOfForms(line));
+    // Ưu tiên loài CÓ tiến hoá (≥2 bậc) để con vật còn đổi hình được; loài đơn-bậc (vd
+    // Dedenne) thì nuôi mãi cũng không tiến hoá.
+    const multi = line.length >= 2;
+
+    if (fresh && multi) return { line, color: colorForId(line[line.length - 1].id), duplicate: false };
+    if (fresh && !freshSingleStage) freshSingleStage = line;
+    else if (multi && !ownedMultiStage) ownedMultiStage = line;
+  }
+
+  // Loài mới một-bậc vẫn hơn hẳn loài trùng: yêu cầu "không trùng" mạnh hơn "có tiến hoá".
+  if (freshSingleStage) {
+    return { line: freshSingleStage, color: colorForId(freshSingleStage[freshSingleStage.length - 1].id), duplicate: false };
+  }
+  const fallback = ownedMultiStage ?? FALLBACK_LINE;
+  return { line: fallback, color: colorForId(fallback[fallback.length - 1].id), duplicate: true };
 }
 
 // ----- Suy ra dạng theo bậc XP -----

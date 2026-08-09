@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { AppData, Habit, PartyMon, ReminderTime } from './types';
 import { defaultData, loadData, saveData, clearData } from './storage';
 import { applyDailyDecay, toggleCompletion, intervalMs, isDoneNow, habitStreak } from './gameLogic';
-import { addHatchProgress, stageFromAffection, shinyChance, EVO_AFFECTION, MEGA_AFFECTION, FEED_CHUNK, completionCandy, STREAK_MILESTONES, EGG_PRICE, RARE_EGG_PRICE } from './collection';
+import { addHatchProgress, stageFromAffection, shinyChance, EVO_AFFECTION, MEGA_AFFECTION, FEED_CHUNK, completionCandy, STREAK_MILESTONES, EGG_PRICE, RARE_EGG_PRICE, hatchAvoidKeys, isNewCatch, recordCaught, dedupeData, lineKey } from './collection';
 import { fetchRandomLine, fetchChainForSpecies } from './species';
 import { teamMilestonesUpTo, battleCandy, BATTLE_EGG_EVERY } from './battle';
 import { fetchMegas } from './megaForms';
@@ -16,12 +16,13 @@ import { pushState } from './lib/cloudState';
 
 export type SyncStatus = 'off' | 'idle' | 'syncing' | 'error';
 
-// Sự kiện khoe: 'hatch' = nở con mới, 'evolve' = tiến hoá, 'milestone' = đạt mốc chuỗi.
+// Sự kiện khoe: 'hatch' = nở con mới, 'evolve' = tiến hoá, 'milestone' = đạt mốc chuỗi,
+// 'duplicate' = không còn loài nào mới để nở nên trứng được giữ lại.
 export interface HatchEvent {
   ts: number;
-  id: number; // pokedexId dạng hiển thị (0 nếu milestone)
+  id: number; // pokedexId dạng hiển thị (0 nếu milestone/duplicate)
   shiny: boolean;
-  kind: 'hatch' | 'evolve' | 'milestone';
+  kind: 'hatch' | 'evolve' | 'milestone' | 'duplicate';
   streak?: number; // dùng cho milestone
 }
 
@@ -78,7 +79,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       setupChannel();
       const loaded = await loadData();
-      const decayed = applyDailyDecay(loaded);
+      // Dọn bản sao do lỗi cũ để lại (fetchRandomLine từng trả về loài trùng). Không trùng
+      // thì dedupeData trả nguyên object cũ nên không phát sinh ghi thừa.
+      const decayed = applyDailyDecay(dedupeData(loaded));
       configureFeedback({ sound: decayed.soundOn, haptics: decayed.hapticsOn, music: decayed.musicOn });
       setData(decayed);
       setReady(true);
@@ -124,8 +127,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await reconcile(uid, dataRef.current);
         if (res.source === 'cloud') {
-          setData(res.data);
-          saveData(res.data);
+          // Máy khác có thể còn chạy bản cũ và đẩy lên bầy đầy bản sao -> dọn ở đây nữa.
+          const clean = dedupeData(res.data);
+          setData(clean);
+          saveData(clean);
         }
         setSyncStatus('idle');
       } catch {
@@ -268,31 +273,62 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [touch]);
 
   // Đập vỏ 1 trứng chờ -> nở 1 Pokémon MỚI (dạng cơ bản). Trứng hiếm -> shiny đảm bảo.
+  //
+  // Bầy phải DUY NHẤT theo (họ, shiny) — xem hatchAvoidIds/isNewCatch trong collection.ts.
+  // Hai điểm khác bản trước:
+  //   • Trứng chỉ bị TIÊU khi đã chắc chắn có con để nhận. Trước đây trứng bị xoá ngay rồi
+  //     mới đi fetch, nên mất mạng giữa chừng là mất trắng quả trứng.
+  //   • Nếu chỉ bốc được loài đã có, trứng được TRẢ LẠI hàng chờ thay vì nở ra bản trùng.
+  const hatchingRef = useRef(false);
   const hatchEgg = useCallback(() => {
     const d0 = dataRef.current;
-    if (!d0.pendingEggs.length) return;
+    if (!d0.pendingEggs.length || hatchingRef.current) return;
+    hatchingRef.current = true;
+
     const now = Date.now();
-    // ưu tiên trứng hiếm
-    const eggIdx = d0.pendingEggs.findIndex((e) => e.rare);
+    const eggIdx = d0.pendingEggs.findIndex((e) => e.rare); // ưu tiên trứng hiếm
     const idx = eggIdx >= 0 ? eggIdx : 0;
     const egg = d0.pendingEggs[idx];
-    const remaining = d0.pendingEggs.filter((_, i) => i !== idx);
-    setData((d) => touch({ ...d, pendingEggs: remaining }));
 
     const bestStreak = d0.habits.reduce((m, h) => Math.max(m, habitStreak(h, todayStr(new Date(now)))), 0);
     const shiny = egg.rare || Math.random() < shinyChance(bestStreak);
+
     (async () => {
-      const avoid = dataRef.current.party.map((m) => m.line[m.line.length - 1]?.id).filter((x): x is number => !!x);
-      const { line } = await fetchRandomLine(avoid);
-      const baseId = line[0].id;
-      const mon: PartyMon = { key: genId(), line: line.map((f) => ({ id: f.id, name: f.name })), affection: 0, shiny, at: now };
-      setData((d) => touch({
-        ...d,
-        party: [...d.party, mon],
-        collection: { ...d.collection, [baseId]: { shiny, at: now } },
-      }));
-      feedbackEvolve();
-      setHatchEvent({ ts: now, id: baseId, shiny, kind: 'hatch' });
+      try {
+        const party0 = dataRef.current.party;
+        const { line, duplicate } = await fetchRandomLine(hatchAvoidKeys(party0, shiny));
+        const baseId = line[0].id;
+        const lk = lineKey(line);
+
+        // Không còn loài nào mới để nở -> giữ nguyên trứng, báo cho người chơi biết vì sao.
+        if (duplicate || !isNewCatch(dataRef.current.party, lk, shiny)) {
+          setHatchEvent({ ts: now, id: 0, shiny, kind: 'duplicate' });
+          return;
+        }
+
+        const mon: PartyMon = {
+          key: genId(),
+          line: line.map((f) => ({ id: f.id, name: f.name })),
+          affection: 0,
+          shiny,
+          at: now,
+        };
+        setData((d) => {
+          // Tiêu trứng ở ĐÂY, cùng một lần ghi với việc thêm con vào bầy.
+          const eggAt = d.pendingEggs.findIndex((e) => e.rare === egg.rare);
+          const eggs = eggAt >= 0 ? d.pendingEggs.filter((_, i) => i !== eggAt) : d.pendingEggs;
+          return touch({
+            ...d,
+            pendingEggs: eggs,
+            party: [...d.party, mon],
+            collection: recordCaught(d.collection, baseId, shiny, now),
+          });
+        });
+        feedbackEvolve();
+        setHatchEvent({ ts: now, id: baseId, shiny, kind: 'hatch' });
+      } finally {
+        hatchingRef.current = false;
+      }
     })();
   }, [touch]);
 
@@ -375,7 +411,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const party = [...d0.party];
     party[idx] = { ...m, affection };
-    const collection = { ...d0.collection, [formId]: { shiny: m.shiny, at: d0.collection[formId]?.at ?? now } };
+    const collection = recordCaught(d0.collection, formId, m.shiny, now);
     setData(touch({ ...d0, candy: (d0.candy ?? 0) - spend, party, collection }));
     feedbackComplete();
 
@@ -396,7 +432,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (j < 0) return d;
           const party2 = [...d.party];
           party2[j] = { ...party2[j], megaId: mega.id, megaName: mega.name };
-          return touch({ ...d, party: party2, collection: { ...d.collection, [mega.id]: { shiny: party2[j].shiny, at: Date.now() } } });
+          return touch({ ...d, party: party2, collection: recordCaught(d.collection, mega.id, party2[j].shiny, Date.now()) });
         });
         feedbackEvolve();
         setHatchEvent({ ts: Date.now(), id: mega.id, shiny: m.shiny, kind: 'evolve' });
@@ -414,7 +450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const cur = party2[j];
       const switched = cur.megaId != null; // đã hoá -> đổi luôn
       party2[j] = { ...cur, megaChoice: formId, ...(switched ? { megaId: formId, megaName: formName } : {}) };
-      const collection = switched ? { ...d.collection, [formId]: { shiny: cur.shiny, at: d.collection[formId]?.at ?? Date.now() } } : d.collection;
+      const collection = switched ? recordCaught(d.collection, formId, cur.shiny, Date.now()) : d.collection;
       return touch({ ...d, party: party2, collection });
     });
   }, [touch]);
