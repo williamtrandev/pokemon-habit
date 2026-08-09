@@ -533,7 +533,9 @@ export default function PartyScreen() {
                   Không con nào khớp. Đổi từ khoá hoặc bộ lọc.
                 </p>
               ) : (
-                <ul className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2.5">
+                // 104px thay vì 120px: màn 375px được 3 cột thay vì 2 — ô 2 cột to quá cỡ
+                // so với sprite 72px, nhìn trống hoác.
+                <ul className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5">
                   {shown.map(({ m, g, bst }) => (
                     <li key={m.key}>
                       <RosterCell

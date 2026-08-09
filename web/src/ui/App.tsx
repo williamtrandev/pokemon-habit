@@ -6,6 +6,7 @@ import { streakFire } from '@app/collection';
 import { feedbackTap } from '@app/feedback';
 import ThemeVars from '@web/ui/ThemeVars';
 import Icon, { type IconName } from '@web/ui/Icon';
+import usePwaInstall from '@web/ui/usePwaInstall';
 import { CreatureImage, Pokeball } from '@web/ui/components/Bits';
 import HomeScreen from '@web/ui/screens/HomeScreen';
 import PartyScreen from '@web/ui/screens/PartyScreen';
@@ -47,11 +48,13 @@ export default function App() {
         ) : (
           <>
             <SideNav active={tab} onChange={setTab} />
+            <MobileHeader />
 
-            {/* key={tab} để hiệu ứng chuyển màn chạy lại mỗi lần đổi tab. */}
+            {/* key={tab} để hiệu ứng chuyển màn chạy lại mỗi lần đổi tab.
+                Mobile chừa chỗ cho header cố định (48px + tai thỏ); desktop chỉ cần tai thỏ. */}
             <main
               key={tab}
-              className="scroller anim-screen safe-top relative min-h-0 flex-1 pb-24 lg:pb-0"
+              className="scroller anim-screen relative min-h-0 flex-1 pt-[calc(48px+env(safe-area-inset-top))] pb-24 lg:pt-[env(safe-area-inset-top)] lg:pb-0"
               aria-label={TABS.find((t) => t.key === tab)?.label}
             >
               {tab === 'home' && <HomeScreen onGoHabits={() => setTab('habits')} />}
@@ -84,6 +87,7 @@ function SideNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void
   const candy = Math.floor(data.candy ?? 0);
   const bestStreak = data.habits.reduce((m, h) => Math.max(m, habitStreak(h, todayStr())), 0);
   const fire = streakFire(bestStreak);
+  const { canInstall, install } = usePwaInstall();
 
   return (
     <nav
@@ -127,6 +131,18 @@ function SideNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void
 
       {/* HUD thường trú: kẹo + chuỗi. Nhờ nó mà header từng màn không phải lặp lại nữa. */}
       <div className="mt-auto grid gap-2">
+        {canInstall && (
+          <button
+            type="button"
+            onClick={() => {
+              feedbackTap();
+              void install();
+            }}
+            className="rounded-ctl border border-primary/60 bg-primary/15 px-3 py-2.5 text-[13px] font-extrabold text-primary-soft transition-colors hover:bg-primary/25"
+          >
+            ⬇ Cài PokéHabit như app
+          </button>
+        )}
         <div className="flex items-center justify-between rounded-ctl border border-line bg-card px-3 py-2.5">
           <span className="text-[12.5px] font-bold text-ink-dim">Kẹo</span>
           <span className="nums text-[15px] font-extrabold text-accent">🍬 {candy}</span>
@@ -140,6 +156,48 @@ function SideNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void
         {authReady && <SyncDot status={syncStatus} />}
       </div>
     </nav>
+  );
+}
+
+// ===== Header mobile (cố định trên cùng, < lg) =====
+// Điện thoại KHÔNG có cột trái nên trước đây kẹo/chuỗi vô hình — vào Cửa hàng trứng mà
+// không biết mình có bao nhiêu kẹo. Header gọn: logo + HUD, kèm nút "Cài app" khi trình
+// duyệt cho phép cài PWA (xem usePwaInstall).
+function MobileHeader() {
+  const { data } = useApp();
+  const candy = Math.floor(data.candy ?? 0);
+  const bestStreak = data.habits.reduce((m, h) => Math.max(m, habitStreak(h, todayStr())), 0);
+  const fire = streakFire(bestStreak);
+  const { canInstall, install } = usePwaInstall();
+
+  return (
+    <header
+      className="fixed inset-x-0 top-0 z-30 border-b border-line bg-bg-soft/95 backdrop-blur-md lg:hidden"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
+      <div className="mx-auto flex h-12 max-w-3xl items-center gap-2 px-4">
+        <Pokeball size={22} />
+        <span className="text-[14px] font-extrabold tracking-tight text-ink">PokéHabit</span>
+        {canInstall && (
+          <button
+            type="button"
+            onClick={() => {
+              feedbackTap();
+              void install();
+            }}
+            className="ml-1 rounded-pill border border-primary/60 bg-primary/15 px-2.5 py-1 text-[11px] font-extrabold text-primary-soft"
+          >
+            ⬇ Cài app
+          </button>
+        )}
+        <span className="nums ml-auto rounded-pill bg-card px-2.5 py-1 text-[12.5px] font-extrabold text-accent">
+          🍬 {candy}
+        </span>
+        <span className="nums rounded-pill bg-card px-2.5 py-1 text-[12.5px] font-extrabold text-ink">
+          {fire.emoji} {bestStreak}
+        </span>
+      </div>
+    </header>
   );
 }
 
