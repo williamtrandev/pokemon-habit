@@ -46,3 +46,7 @@ coverage/
 # generated native folders
 /ios
 /android
+
+# local tooling
+.codegraph/
+.cursor/
