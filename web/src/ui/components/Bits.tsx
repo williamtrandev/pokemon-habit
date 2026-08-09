@@ -28,7 +28,9 @@ export function ProgressRing({ done, total, size = 60, stroke = 5 }: { done: num
           style={{ transition: 'stroke-dashoffset 320ms ease' }}
         />
       </svg>
-      <span className="text-[15px] font-extrabold text-ink">
+      {/* Cỡ chữ theo cỡ vòng: vòng 60px ở dải chip và vòng 132px ở cột theo dõi dùng chung
+          component này, chữ cố định 15px sẽ lọt thỏm trong vòng to. */}
+      <span className="nums font-extrabold text-ink" style={{ fontSize: Math.round(size * 0.26) }}>
         {done}/{total}
       </span>
     </div>

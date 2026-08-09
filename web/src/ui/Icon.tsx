@@ -29,7 +29,8 @@ export type IconName =
   | 'flash'
   | 'shield'
   | 'log-out-outline'
-  | 'mail-outline';
+  | 'mail-outline'
+  | 'search-outline';
 
 // path (fill) — lấy theo hình dạng Ionicons tương ứng, chuẩn hoá về viewBox 512.
 const PATHS: Record<IconName, { d: string; stroke?: boolean }> = {
@@ -97,6 +98,10 @@ const PATHS: Record<IconName, { d: string; stroke?: boolean }> = {
   },
   'mail-outline': {
     d: 'M64 112h384v288H64zM64 128l192 144 192-144',
+    stroke: true,
+  },
+  'search-outline': {
+    d: 'M221 338a117 117 0 100-234 117 117 0 000 234zM305 305l103 103',
     stroke: true,
   },
 };

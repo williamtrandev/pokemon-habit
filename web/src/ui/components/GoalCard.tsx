@@ -24,47 +24,56 @@ export default function GoalCard({ habit, now, onToggle }: Props) {
   return (
     <div
       className={
-        'mb-3 flex items-center rounded-card border p-4 shadow-[0_4px_10px_rgba(0,0,0,0.12)] transition-colors ' +
-        (done ? 'border-green/60 bg-green/10' : 'border-line bg-card')
+        'group flex items-center gap-4 rounded-card border p-4 transition-colors ' +
+        (done ? 'border-green/45 bg-green/8' : 'border-line bg-card hover:border-primary/45')
       }
     >
-      <div className="mr-3 min-w-0 flex-1">
-        <p className="line-clamp-2 text-[17px] font-extrabold text-ink">{habit.title}</p>
+      <div className="min-w-0 flex-1">
+        <p
+          className={
+            'text-[17px] leading-snug font-bold ' + (done ? 'text-ink-dim line-through decoration-green/60' : 'text-ink')
+          }
+        >
+          {habit.title}
+        </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {streak > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-pill bg-accent/15 px-2 py-0.5 text-xs font-extrabold text-accent">
+            <span className="nums inline-flex items-center gap-1 rounded-pill bg-accent/15 px-2 py-0.5 text-xs font-extrabold text-accent">
               <Icon name="flame" size={12} />
-              {streak}
+              {streak} ngày
             </span>
           )}
           {habit.reminder && (
-            <span className="inline-flex items-center gap-1 rounded-pill bg-primary/10 px-2 py-0.5 text-[11px] font-extrabold text-primary-soft">
+            <span className="inline-flex items-center gap-1 rounded-pill bg-primary/12 px-2 py-0.5 text-[11.5px] font-extrabold text-primary-soft">
               <Icon name="alarm-outline" size={11} />
               {reminderLabel(habit.reminder)}
             </span>
           )}
+          {resetAt != null && (
+            <span className="nums text-[11.5px] font-bold text-ink-dim">mở lại sau {fmtRemain(resetAt - now)}</span>
+          )}
         </div>
       </div>
 
-      <div className="grid w-14 justify-items-center">
+      {/* Trên máy tính không có "chạm", nên nút xong là một nút CÓ CHỮ chứ không phải vòng
+          tròn trơn — đọc là biết bấm để làm gì, và rộng ra thì chuột dễ trúng.
+          Xong rồi thì đổi thành nhãn tĩnh: hành động này một chiều, không bấm lại được. */}
+      {done ? (
+        <span className="flex shrink-0 items-center gap-2 rounded-pill border border-green/50 bg-green/15 px-4 py-2.5 text-[13.5px] font-extrabold text-green">
+          <Icon name="checkmark-sharp" size={16} />
+          Đã xong
+        </span>
+      ) : (
         <button
           type="button"
-          onClick={done ? undefined : onToggle}
-          disabled={done}
-          aria-label={done ? `Đã hoàn thành ${habit.title}` : `Hoàn thành ${habit.title}`}
-          className={
-            'grid size-13 place-items-center rounded-full border-[2.5px] transition-transform active:scale-90 ' +
-            (done
-              ? 'border-green bg-green text-white shadow-[0_3px_8px_rgba(34,197,94,0.3)]'
-              : 'border-primary bg-card text-primary-soft shadow-[0_3px_8px_rgba(139,92,246,0.3)] hover:bg-primary/10')
-          }
+          onClick={onToggle}
+          aria-label={`Hoàn thành ${habit.title}`}
+          className="flex shrink-0 items-center gap-2 rounded-pill border border-primary bg-primary/10 px-4 py-2.5 text-[13.5px] font-extrabold text-primary-soft transition-colors hover:bg-primary hover:text-white"
         >
-          <Icon name="checkmark-sharp" size={26} />
+          <Icon name="checkmark-sharp" size={16} />
+          <span className="hidden sm:inline">Hoàn thành</span>
         </button>
-        {resetAt != null && (
-          <span className="mt-1 text-center text-[10px] font-bold text-ink-dim">mở sau {fmtRemain(resetAt - now)}</span>
-        )}
-      </div>
+      )}
     </div>
   );
 }

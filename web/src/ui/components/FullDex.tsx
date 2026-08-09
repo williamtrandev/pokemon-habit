@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { type EvoChain, type MegaForm, MAX_EVO_CHAIN, fetchEvolutionChain } from '@app/species';
 import { fetchMegas } from '@app/megaForms';
 import { CreatureImage } from '@web/ui/components/Bits';
+import Dialog from '@web/ui/components/Dialog';
 import Icon from '@web/ui/Icon';
 
 interface Props {
@@ -10,11 +11,14 @@ interface Props {
 }
 
 const CHAIN_IDS = Array.from({ length: MAX_EVO_CHAIN }, (_, i) => i + 1);
-const PAGE = 36; // số dòng tiến hoá nạp thêm mỗi lần cuộn tới đáy
+const PAGE = 60; // số dòng tiến hoá nạp thêm mỗi lần cuộn tới đáy
 
 // Bản web của ../src/components/FullDexModal.tsx.
 // App dùng FlatList ảo hoá; web dùng cuộn vô hạn theo trang: mỗi ô tự tra chain khi được
 // render, nên chỉ phần đang xem mới gọi PokéAPI (service worker cache lại cho lần sau).
+//
+// Lưới ở đây tự đếm số cột theo bề rộng (auto-fill) chứ không cố định 3 cột như bản điện
+// thoại: màn 1440px xếp được 12 con một hàng, nên cuộn ít hơn hẳn.
 export default function FullDex({ onClose, caught }: Props) {
   const [selected, setSelected] = useState<EvoChain | null>(null);
   const [limit, setLimit] = useState(PAGE);
@@ -25,9 +29,8 @@ export default function FullDex({ onClose, caught }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (selected) setSelected(null);
-      else onClose();
+      // Chỉ đóng cả bảng khi KHÔNG có cây tiến hoá nào đang mở; hộp thoại con tự xử Esc của nó.
+      if (e.key === 'Escape' && !selected) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -35,38 +38,54 @@ export default function FullDex({ onClose, caught }: Props) {
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) {
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 600) {
       setLimit((n) => Math.min(MAX_EVO_CHAIN, n + PAGE));
     }
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col bg-bg">
-      <div className="safe-top flex items-center justify-between border-b border-line px-4 pt-4 pb-3">
+    <div className="fixed inset-0 z-50 flex flex-col bg-bg">
+      <div className="app-bg absolute inset-0 opacity-60" />
+
+      <header className="safe-top relative flex items-center justify-between gap-4 border-b border-line px-5 py-4 lg:px-8">
         <div>
-          <h2 className="text-xl font-extrabold text-ink">Toàn bộ Pokédex</h2>
-          <p className="mt-0.5 text-xs text-ink-dim">Dạng cơ bản · chạm để xem cây tiến hoá</p>
+          <h2 className="text-xl font-extrabold tracking-tight text-ink lg:text-2xl">Toàn bộ Pokédex</h2>
+          <p className="mt-0.5 text-[13px] text-ink-dim">
+            Dạng cơ bản của {MAX_EVO_CHAIN} dòng tiến hoá · bấm một con để xem cả cây
+          </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Đóng"
-          className="grid size-9 place-items-center rounded-full bg-card text-ink-dim hover:text-ink"
+          className="flex shrink-0 items-center gap-2 rounded-pill border border-line bg-card px-4 py-2 text-[13px] font-extrabold text-ink-dim transition-colors hover:text-ink"
         >
-          <Icon name="close" size={18} />
+          Đóng
+          <kbd className="rounded border border-line px-1.5 py-px font-sans text-[10px] font-black">Esc</kbd>
         </button>
-      </div>
+      </header>
 
-      <div className="screen min-h-0 flex-1 p-4" onScroll={onScroll}>
-        <div className="grid grid-cols-3 gap-2">
-          {ids.map((chainId) => (
-            <BaseCell key={chainId} chainId={chainId} caught={caught} onOpen={setSelected} onEmpty={markEmpty} />
-          ))}
+      <div className="scroller relative min-h-0 flex-1" onScroll={onScroll}>
+        <div className="mx-auto max-w-[1500px] p-5 lg:p-8">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5">
+            {ids.map((chainId) => (
+              <li key={chainId}>
+                <BaseCell chainId={chainId} caught={caught} onOpen={setSelected} onEmpty={markEmpty} />
+              </li>
+            ))}
+          </ul>
+          {limit < MAX_EVO_CHAIN && <p className="py-6 text-center text-[13px] text-ink-dim">Cuộn để tải thêm…</p>}
         </div>
-        {limit < MAX_EVO_CHAIN && <p className="py-4 text-center text-xs text-ink-dim">Cuộn để tải thêm…</p>}
       </div>
 
-      {selected && <ChainSheet chain={selected} caught={caught} onClose={() => setSelected(null)} />}
+      <Dialog
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        size="lg"
+        title={selected ? selected.line[0].name : ''}
+        subtitle={selected ? `Cây tiến hoá · ${selected.line.length} bậc` : undefined}
+      >
+        {selected && <ChainBody chain={selected} caught={caught} />}
+      </Dialog>
     </div>
   );
 }
@@ -109,31 +128,29 @@ function BaseCell({
       disabled={!chain}
       onClick={() => chain && onOpen(chain)}
       className={
-        'grid justify-items-center gap-0.5 rounded-[12px] border bg-card-alt py-2 ' +
-        (got ? 'border-primary shadow-[0_2px_8px_rgba(139,92,246,0.4)]' : 'border-line')
+        'grid w-full justify-items-center gap-0.5 rounded-card border bg-card p-2 transition-colors ' +
+        (got ? 'border-primary/70 bg-primary/8 hover:border-primary' : 'border-line hover:border-primary/50')
       }
     >
       {base ? (
-        <CreatureImage formId={base.id} size={58} tint={got ? undefined : 'dim'} />
+        <CreatureImage formId={base.id} size={62} tint={got ? undefined : 'dim'} />
       ) : (
-        <span className="grid size-[58px] place-items-center text-ink-dim">
+        <span className="grid size-[62px] place-items-center text-ink-dim">
           <span className="anim-spin-slow inline-block size-4 rounded-full border-2 border-current border-t-transparent" />
         </span>
       )}
-      <span className="w-full truncate px-1 text-center text-[11px] font-bold text-ink capitalize">
+      <span className="w-full truncate px-1 text-center text-[11.5px] font-bold text-ink capitalize">
         {base?.name ?? ''}
       </span>
-      <span
-        className={'w-full truncate px-1 text-center text-[9px] font-bold ' + (got ? 'text-green' : 'text-ink-dim')}
-      >
+      <span className={'w-full truncate px-1 text-center text-[10px] font-bold ' + (got ? 'text-green' : 'text-ink-dim')}>
         {got ? '✓ Đã get' : chain && chain.line.length > 1 ? `${chain.line.length} bậc` : ' '}
       </span>
     </button>
   );
 }
 
-// Sheet cây tiến hoá của 1 dòng: base → ... + Mega (nếu có). Con đã get tô sáng.
-function ChainSheet({ chain, caught, onClose }: { chain: EvoChain; caught: Set<number>; onClose: () => void }) {
+// Cây tiến hoá của một dòng: base → ... + Mega (nếu có). Con đã get tô sáng.
+function ChainBody({ chain, caught }: { chain: EvoChain; caught: Set<number> }) {
   const [megas, setMegas] = useState<MegaForm[] | null>(null); // null = đang tra
 
   useEffect(() => {
@@ -149,58 +166,42 @@ function ChainSheet({ chain, caught, onClose }: { chain: EvoChain; caught: Set<n
   }, [chain]);
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col justify-end">
-      <button type="button" aria-label="Đóng" onClick={onClose} className="scrim absolute inset-0 cursor-default" />
-      <div className="anim-sheet safe-bottom relative max-h-[85%] overflow-y-auto rounded-t-sheet bg-bg-soft p-4">
-        <div className="mx-auto mb-3 h-1 w-9 rounded-pill bg-line" />
-        <h3 className="text-lg font-extrabold text-ink capitalize">{chain.line[0].name}</h3>
-        <p className="mt-0.5 mb-3 text-xs text-ink-dim">
-          Cây tiến hoá · {chain.line.length} bậc{megas && megas.length > 0 ? ` + ${megas.length} dạng đặc biệt` : ''}
-        </p>
-
-        <div className="no-scrollbar flex items-center gap-1 overflow-x-auto pb-2">
-          {chain.line.map((f, i) => {
-            const got = caught.has(f.id);
-            return (
-              <div key={f.id} className="flex shrink-0 items-center gap-1">
-                {i > 0 && <span className="text-[22px] text-ink-dim">›</span>}
-                <ChainNode id={f.id} name={f.name} got={got} accent="var(--color-primary)" />
-              </div>
-            );
-          })}
-          {megas && megas.length > 0 && (
-            <>
-              <span className="text-[22px] text-ink-dim">»</span>
-              {megas.map((m) => (
-                <ChainNode key={m.id} id={m.id} name={m.name} got={caught.has(m.id)} accent="var(--color-accent)" />
-              ))}
-            </>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-3 w-full rounded-pill border border-line bg-card py-3 font-extrabold text-ink"
-        >
-          Đóng
-        </button>
+    <>
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
+        {chain.line.map((f, i) => (
+          <div key={f.id} className="flex items-center gap-1.5">
+            {i > 0 && <span className="text-2xl text-ink-dim">›</span>}
+            <ChainNode id={f.id} name={f.name} got={caught.has(f.id)} accent="var(--color-primary)" />
+          </div>
+        ))}
+        {megas && megas.length > 0 && (
+          <>
+            <span className="text-2xl text-ink-dim">»</span>
+            {megas.map((m) => (
+              <ChainNode key={m.id} id={m.id} name={m.name} got={caught.has(m.id)} accent="var(--color-accent)" />
+            ))}
+          </>
+        )}
       </div>
-    </div>
+      {megas == null && (
+        <p className="mt-3 flex items-center justify-center gap-2 text-[12.5px] text-ink-dim">
+          <Icon name="sync" size={13} className="anim-spin-slow" />
+          Đang tra dạng đặc biệt…
+        </p>
+      )}
+    </>
   );
 }
 
 function ChainNode({ id, name, got, accent }: { id: number; name: string; got: boolean; accent: string }) {
   return (
     <div
-      className="grid w-24 shrink-0 justify-items-center gap-0.5 rounded-[12px] border-[1.5px] bg-card-alt py-2"
+      className="grid w-28 shrink-0 justify-items-center gap-0.5 rounded-card border bg-card-alt py-3"
       style={{ borderColor: got ? accent : 'var(--color-line)' }}
     >
-      <CreatureImage formId={id} size={62} tint={got ? undefined : 'dim'} />
-      <span className="w-full truncate px-1 text-center text-[11px] font-bold text-ink capitalize">{name}</span>
-      <span
-        className={'text-[9.5px] font-bold ' + (got ? 'text-green' : 'text-ink-dim')}
-      >
+      <CreatureImage formId={id} size={72} tint={got ? undefined : 'dim'} />
+      <span className="w-full truncate px-1 text-center text-[12px] font-bold text-ink capitalize">{name}</span>
+      <span className={'text-[10px] font-bold ' + (got ? 'text-green' : 'text-ink-dim')}>
         {got ? '✓ Đã get' : 'chưa get'}
       </span>
     </div>

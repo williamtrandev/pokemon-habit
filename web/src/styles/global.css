@@ -23,19 +23,27 @@
   --color-red: #ef4444;
   --color-track: #334155;
 
-  /* Bán kính khớp radius trong ../src/theme.ts */
+  /* ===== Bán kính: MỘT hệ, ba bậc, dùng đúng theo vai trò =====
+     card 20px   -> vùng nội dung (section, panel, thẻ lớn)
+     ctl  12px   -> mọi thứ chạm được không phải pill (ô nhập, nút vuông, ô lưới)
+     pill 999px  -> nút hành động chính, chip, tag
+     Khớp radius trong ../src/theme.ts. Không thêm bậc thứ tư. */
   --radius-card: 20px;
+  --radius-ctl: 12px;
   --radius-sheet: 28px;
   --radius-pill: 999px;
 }
 
-/* Biến không phải màu đơn (gradient nền, quầng sáng, nền mờ modal) — ThemeVars cũng ghi đè. */
+/* Biến không phải màu đơn (gradient nền, nền mờ modal) — ThemeVars cũng ghi đè. */
 :root {
   --grad-0: #0f172a;
   --grad-1: #141733;
   --grad-2: #1e1b4b;
-  --glow: rgba(139, 92, 246, 0.45);
   --scrim: rgba(2, 6, 23, 0.72);
+  --stars: 1; /* ThemeVars đặt 0 ở chế độ sáng */
+
+  /* Bề rộng cột điều hướng bên trái ở desktop. */
+  --nav-w: 15rem;
 }
 
 @layer base {
@@ -48,11 +56,16 @@
   body {
     background: var(--color-bg);
     color: var(--color-ink);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    /* Ngăn xếp font hệ thống: 0 byte tải về, 0 nhảy chữ (CLS), và trên desktop nó CHÍNH LÀ
+       chữ người dùng đang đọc ở mọi app khác — đúng chỗ cho UI công cụ, không phải landing. */
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+      sans-serif;
     -webkit-font-smoothing: antialiased;
-    /* Cuộn nằm trong khung app, không ở body — giống app native. */
+    text-rendering: optimizeLegibility;
+    /* Cuộn nằm trong vùng nội dung, không ở body — vỏ app luôn vừa khung nhìn. */
     overflow: hidden;
-    /* PWA standalone: chặn kéo-để-tải-lại và chọn text như app thật. */
+    /* PWA standalone: chặn kéo-để-tải-lại. */
     overscroll-behavior: none;
   }
 
@@ -67,6 +80,21 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Số liệu (máu, kẹo, chỉ số, đếm ngược) luôn cùng bề rộng chữ số -> không giật khi đếm. */
+  .nums {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* ===== Bàn phím =====
+     Cả app trước đây không có một dấu focus nào: đi Tab trên desktop là đi trong đêm.
+     :focus-visible nên chuột bấm KHÔNG hiện viền, chỉ bàn phím mới hiện. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary-soft);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
   /* Vùng an toàn của iPhone khi cài PWA lên màn hình chính. */
   .safe-top {
     padding-top: env(safe-area-inset-top);
@@ -77,38 +105,59 @@
 }
 
 @layer components {
-  /* Nền bầu trời + quầng sáng, tương ứng AppBackground.tsx của app native. */
+  /* ===== Nền =====
+     Trước đây: gradient tím + một quầng radial to + 42 ngôi sao rải bằng Math.random.
+     Trên màn 1440px chỗ nào cũng trống nên quầng tím phình ra giữa màn và mấy chấm trắng
+     trông như bụi bám. Giờ: gradient rất nhẹ + sao là MỘT hoa văn radial lặp (0 node DOM,
+     tất định, chỉ hiện ở chế độ tối). */
   .app-bg {
-    background: linear-gradient(180deg, var(--grad-0) 0%, var(--grad-1) 52%, var(--grad-2) 100%);
+    background: linear-gradient(180deg, var(--grad-0) 0%, var(--grad-1) 60%, var(--grad-2) 100%);
   }
 
-  .app-glow {
-    background: radial-gradient(circle at 72% 12%, var(--glow) 0%, transparent 55%);
+  .app-stars {
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgb(255 255 255 / 0.5), transparent 100%),
+      radial-gradient(1px 1px at 72% 12%, rgb(255 255 255 / 0.38), transparent 100%),
+      radial-gradient(1.4px 1.4px at 44% 78%, rgb(255 255 255 / 0.3), transparent 100%),
+      radial-gradient(1px 1px at 88% 62%, rgb(255 255 255 / 0.42), transparent 100%);
+    background-size: 340px 300px;
   }
 
   .scrim {
     background: var(--scrim);
   }
 
-  /* Vùng cuộn của một màn hình. */
-  .screen {
+  /* Vùng cuộn. Thanh cuộn mảnh, chỉ hiện khi trỏ vào vùng đó. */
+  .scroller {
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
     scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 200ms;
+  }
+
+  .scroller:hover,
+  .scroller:focus-within {
     scrollbar-color: var(--color-line) transparent;
   }
 
-  .screen::-webkit-scrollbar {
-    width: 8px;
+  .scroller::-webkit-scrollbar {
+    width: 10px;
   }
 
-  .screen::-webkit-scrollbar-thumb {
-    background: var(--color-line);
+  .scroller::-webkit-scrollbar-thumb {
+    background: transparent;
+    border: 3px solid transparent;
     border-radius: 999px;
+    background-clip: content-box;
   }
 
-  /* Ẩn thanh cuộn ở dải ngang (chọn Pokémon, chip khoảng thời gian). */
+  .scroller:hover::-webkit-scrollbar-thumb,
+  .scroller:focus-within::-webkit-scrollbar-thumb {
+    background-color: var(--color-line);
+  }
+
   .no-scrollbar {
     scrollbar-width: none;
   }
@@ -116,23 +165,54 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  /* Bề mặt dùng lại: một đường viền, một nền, không đổ bóng nặng.
+     (Bóng to trên nền tối chỉ làm mờ mép chứ không tạo được độ cao.) */
+  .surface {
+    border: 1px solid var(--color-line);
+    background: var(--color-card);
+    border-radius: var(--radius-card);
+  }
 }
 
 @layer utilities {
-  /* Chuyển màn: mờ + trượt nhẹ lên, khớp Animated ở App.tsx native (240ms). */
+  /* ===== Chuyển động =====
+     Tất cả đều CÓ LÝ DO: chuyển màn (định hướng), pop (ăn mừng nở/tiến hoá), wobble (trứng
+     chạm được), lunge/hit/dmg (phản hồi đòn đánh), heart/jump (phản hồi cho ăn).
+     Không có vòng lặp vô tận nào chạy khi không có việc gì xảy ra. */
   .anim-screen {
-    animation: screen-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+    animation: screen-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .anim-sheet {
     animation: sheet-up 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
+  .anim-dialog {
+    animation: dialog-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Tấm hộp thoại: điện thoại trượt lên từ đáy, máy tính hiện ra ở giữa.
+     Đổi ngay trong CSS chứ không dùng `sm:anim-dialog` — anim-* là class CSS thường,
+     Tailwind không sinh biến thể breakpoint cho chúng nên `sm:` sẽ im lặng không có tác dụng. */
+  .anim-panel {
+    animation: sheet-up 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @media (min-width: 40rem) {
+    .anim-panel {
+      animation: dialog-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+  }
+
+  .anim-fade {
+    animation: fade-in 160ms ease-out;
+  }
+
   .anim-pop {
     animation: pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
-  /* Trứng chờ nở: lắc lư liên tục cho biết là chạm được. */
   .anim-wobble {
     animation: wobble 2100ms ease-in-out infinite;
   }
@@ -146,13 +226,12 @@
   }
 
   /* ===== Đấu đạo trường ===== */
-  /* Lao tới đánh rồi về chỗ — khớp lunge() trong BattleArena native (HIT 220ms / STEP 900ms). */
   .anim-lunge-up {
-    animation: lunge-up 900ms cubic-bezier(0.33, 0, 0.67, 1);
+    animation: lunge-up 560ms cubic-bezier(0.33, 0, 0.67, 1);
   }
 
   .anim-lunge-down {
-    animation: lunge-down 900ms cubic-bezier(0.33, 0, 0.67, 1);
+    animation: lunge-down 560ms cubic-bezier(0.33, 0, 0.67, 1);
   }
 
   .anim-hit {
@@ -161,6 +240,10 @@
 
   .anim-dmg {
     animation: dmg-float 620ms ease-out forwards;
+  }
+
+  .anim-guard {
+    animation: guard-pulse 420ms ease-out;
   }
 
   .anim-confetti {
@@ -208,8 +291,8 @@
   0% {
     transform: none;
   }
-  24% {
-    transform: translate(28%, -60px);
+  30% {
+    transform: translate(18%, -34px);
   }
   100% {
     transform: none;
@@ -220,8 +303,8 @@
   0% {
     transform: none;
   }
-  24% {
-    transform: translate(-28%, 60px);
+  30% {
+    transform: translate(-18%, 34px);
   }
   100% {
     transform: none;
@@ -240,6 +323,19 @@
   75% {
     transform: translateX(-8px);
     filter: brightness(1.6);
+  }
+}
+
+@keyframes guard-pulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.94);
+    filter: brightness(1.3);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 
@@ -269,13 +365,26 @@
 @keyframes screen-in {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(8px);
   }
 }
 
 @keyframes sheet-up {
   from {
     transform: translateY(100%);
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
   }
 }
 
@@ -319,13 +428,40 @@
   }
 }
 
+/* Tôn trọng prefers-reduced-motion: mọi thứ chỉ còn hiện/ẩn, không di chuyển.
+   Liệt kê hết chứ không dùng `*`: `*` sẽ giết luôn transition của thanh máu/tiến độ,
+   mà mấy cái đó là THÔNG TIN (thấy máu tụt bao nhiêu), không phải trang trí. */
 @media (prefers-reduced-motion: reduce) {
   .anim-screen,
   .anim-sheet,
+  .anim-dialog,
+  .anim-panel,
+  .anim-fade,
   .anim-pop,
   .anim-wobble,
   .anim-shake,
-  .anim-spin-slow {
+  .anim-spin-slow,
+  .anim-lunge-up,
+  .anim-lunge-down,
+  .anim-hit,
+  .anim-guard,
+  .anim-confetti,
+  .anim-jump,
+  .anim-heart {
     animation: none;
+  }
+
+  /* anim-dmg dùng `forwards` để tự ẩn số sát thương; bỏ hẳn thì số nằm mãi trên màn. */
+  .anim-dmg {
+    animation: fade-out-dmg 620ms ease-out forwards;
+  }
+}
+
+@keyframes fade-out-dmg {
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
   }
 }

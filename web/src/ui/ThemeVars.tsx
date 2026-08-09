@@ -30,8 +30,12 @@ export default function ThemeVars() {
     set('--grad-0', colors.bgGradient[0]);
     set('--grad-1', colors.bgGradient[1]);
     set('--grad-2', colors.bgGradient[2]);
-    set('--glow', colors.glow);
     set('--scrim', colors.scrim);
+
+    // Sao trời chỉ có nghĩa trên nền đêm. Đi qua biến CSS chứ không dùng `dark:` của
+    // Tailwind: `dark:` đọc prefers-color-scheme của HỆ, còn ở đây người dùng tự chọn
+    // sáng/tối/hệ thống trong app — hai thứ đó lệch nhau là chuyện thường.
+    set('--stars', scheme === 'dark' ? '1' : '0');
 
     // Cho trình duyệt biết nên vẽ scrollbar/ô nhập theo chế độ nào.
     root.style.colorScheme = scheme;

@@ -21,7 +21,7 @@ export default function AccountCard() {
 
   if (!authReady) {
     return (
-      <section className="mb-4 rounded-card border border-line bg-card p-4">
+      <section className="rounded-card border border-line bg-card p-4 lg:p-5">
         <h2 className="text-base font-extrabold text-ink">☁️ Dùng chung với điện thoại</h2>
         <p className="mt-1 text-[12.5px] text-ink-dim">
           Chưa cấu hình Supabase. Điền <code className="font-mono">EXPO_PUBLIC_SUPABASE_URL</code> và{' '}
@@ -35,7 +35,7 @@ export default function AccountCard() {
   // Đã đăng nhập email -> tiến độ dùng chung.
   if (email) {
     return (
-      <section className="mb-4 rounded-card border border-green/60 bg-green/10 p-4">
+      <section className="rounded-card border border-green/50 bg-green/10 p-4 lg:p-5">
         <div className="flex items-start gap-3">
           <Icon name="cloud-done-outline" size={18} className="mt-0.5 text-green" />
           <div className="min-w-0 flex-1">
@@ -58,7 +58,7 @@ export default function AccountCard() {
             setStep('idle');
             setMsg(null);
           }}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-[12px] border border-line bg-card py-2.5 text-sm font-extrabold text-ink-dim disabled:opacity-50"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-ctl border border-line bg-card py-2.5 text-sm font-extrabold text-ink-dim disabled:opacity-50"
         >
           <Icon name="log-out-outline" size={16} />
           Thoát tài khoản
@@ -98,7 +98,7 @@ export default function AccountCard() {
   };
 
   return (
-    <section className="mb-4 rounded-card border border-line bg-card p-4">
+    <section className="rounded-card border border-line bg-card p-4 lg:p-5">
       <h2 className="text-base font-extrabold text-ink">☁️ Dùng chung với điện thoại</h2>
       <p className="mt-1 text-[12.5px] text-ink-dim">
         Máy này đang lưu riêng. Đăng nhập email ở CẢ web và app để nuôi cùng một bầy — làm trên máy tính, mở điện thoại
@@ -112,7 +112,7 @@ export default function AccountCard() {
             feedbackTap();
             setStep('email');
           }}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-[12px] border border-primary bg-primary/10 py-2.5 text-sm font-extrabold text-primary-soft"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-ctl border border-primary bg-primary/10 py-2.5 text-sm font-extrabold text-primary-soft"
         >
           <Icon name="mail-outline" size={16} />
           Đăng nhập bằng email
@@ -131,7 +131,7 @@ export default function AccountCard() {
               if (e.key === 'Enter') void submitEmail();
             }}
             placeholder="ban@email.com"
-            className="w-full rounded-[12px] border border-line bg-card-alt px-4 py-3 text-base text-ink outline-none placeholder:text-ink-dim focus:border-primary"
+            className="w-full rounded-ctl border border-line bg-card-alt px-4 py-3 text-base text-ink outline-none placeholder:text-ink-dim focus:border-primary"
           />
           <div className="flex gap-2">
             <button
@@ -169,7 +169,7 @@ export default function AccountCard() {
               if (e.key === 'Enter') void submitCode();
             }}
             placeholder="000000"
-            className="w-full rounded-[12px] border border-line bg-card-alt px-4 py-3 text-center text-2xl font-extrabold tracking-[0.3em] text-ink tabular-nums outline-none placeholder:text-ink-dim focus:border-primary"
+            className="w-full rounded-ctl border border-line bg-card-alt px-4 py-3 text-center text-2xl font-extrabold tracking-[0.3em] text-ink tabular-nums outline-none placeholder:text-ink-dim focus:border-primary"
           />
           <div className="flex gap-2">
             <button
