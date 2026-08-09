@@ -285,17 +285,27 @@ export default function PartyScreen() {
     seed: number;
   } | null>(null);
 
-  const openArena = () => {
+  const openArena = async () => {
     if (!bossReady || !encounter || !bossInfo || beaten) return;
     feedbackTap();
+    // Bộ chiêu THẬT cho cả hai phe (cache trong fetchMoves nên chỉ lượt đầu là chờ mạng).
+    // Lỗi mạng -> [] -> con đó đánh chay theo hệ gốc, trận vẫn chạy.
+    const formIds = [...new Set(party.map((m) => currentForm(m).id))];
+    const [movePairs, bossMoves] = await Promise.all([
+      Promise.all(formIds.map((id) => fetchMoves(id).then((mv) => [id, mv] as const))),
+      fetchMoves(encounter.species.id),
+    ]);
+    const movesById = Object.fromEntries(movePairs);
     const fighters: Fighter[] = party
       .map((m) => {
         const f = currentForm(m);
         const info = infos[f.id]!;
         const stats = shinyStats(info.stats, m.shiny); // shiny mạnh hơn dạng thường
+        const base = toCombatant(m.key, f.id, f.name || `#${f.id}`, info.types, stats);
+        base.moves = movesById[f.id] ?? [];
         return {
           // Trang bị áp SAU toCombatant, KHÔNG vào bst -> boss không scale theo (lợi thế ròng).
-          c: applyHeld(toCombatant(m.key, f.id, f.name || `#${f.id}`, info.types, stats), m.item),
+          c: applyHeld(base, m.item),
           shiny: m.shiny,
           item: itemByKey(m.item), // để màn chọn/trong trận hiện món đang đeo
           bst: bstFromStats(stats), // cộng thành Sức mạnh đội hình -> scale boss
@@ -306,12 +316,13 @@ export default function PartyScreen() {
     const t = encounter.tier;
     // Boss XEM TRƯỚC (chưa scale) cho màn chọn quân hiện tên/hệ/ảnh.
     const boss = toCombatant('boss', encounter.species.id, encounter.species.name, bossInfo.types, bossInfo.stats, t.hpMul, t.atkMul);
+    boss.moves = bossMoves;
     // Boss THẬT dựng sau khi biết đội hình: mang đội mạnh thì boss mạnh theo, nên bầy lớn tới
     // đâu lượt boss vẫn đáng đánh. LIVE_* là bội riêng của chế độ đánh-theo-lượt: trận phải
     // dài 9-13 lượt mới đủ chỗ cho đọc dự báo / dồn lực / đỡ đòn (xem battleLive.ts).
     const stats = bossInfo.stats;
-    const makeBoss = (lineupPower: number) =>
-      toCombatant(
+    const makeBoss = (lineupPower: number) => {
+      const b = toCombatant(
         'boss',
         encounter.species.id,
         encounter.species.name,
@@ -320,6 +331,9 @@ export default function PartyScreen() {
         t.hpMul * lineupScale(lineupPower) * LIVE_HP_MUL,
         t.atkMul * lineupAtkScale(lineupPower) * LIVE_ATK_MUL
       );
+      b.moves = bossMoves;
+      return b;
+    };
     setArena({
       team: fighters,
       boss,

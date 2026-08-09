@@ -22,7 +22,7 @@
 // Vẫn TẤT ĐỊNH: rng nằm TRONG state, `stepLive` là hàm thuần -> test được, phát lại khớp.
 import {
   Combatant, BossPhase, phasesOf, phaseAt, rollDamage, typeMultiplier,
-  ENRAGE_ATK_MUL,
+  ENRAGE_ATK_MUL, signatureMove,
 } from './battle';
 
 export const MAX_LINEUP = 3;      // số Pokémon mang ra đấu
@@ -102,6 +102,7 @@ export interface LiveEvent {
   crit?: boolean;
   heal?: number;
   key?: string; // con liên quan (vào sân / gục / được hồi)
+  move?: string; // tên chiêu vừa dùng (nếu con đó có bộ chiêu) — UI hiện banner/nhật ký
 }
 
 export interface LiveState {
@@ -209,8 +210,10 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
       });
       bossHp = Math.max(0, bossHp - r.dmg);
       log.push({
-        kind: 'player-hit', dmg: r.dmg, mult: r.mult, crit: r.crit, key: me.key,
-        text: `${me.name} ra đòn${charge ? ' DỒN LỰC' : ''}! ${r.dmg} sát thương.${r.crit ? ' Chí mạng! 💥' : ''}`,
+        kind: 'player-hit', dmg: r.dmg, mult: r.mult, crit: r.crit, key: me.key, move: r.move,
+        text: r.move
+          ? `${me.name} dùng ${r.move}${charge ? ' DỒN LỰC' : ''}! ${r.dmg} sát thương.${r.crit ? ' Chí mạng! 💥' : ''}`
+          : `${me.name} ra đòn${charge ? ' DỒN LỰC' : ''}! ${r.dmg} sát thương.${r.crit ? ' Chí mạng! 💥' : ''}`,
       });
       charge = false;
       gainEnergy(active);
@@ -221,12 +224,14 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
     case 'special': {
       // Tuyệt chiêu: XUYÊN phòng thủ (không nhân GUARD_TAKEN), cộng thẳng Áp Chế,
       // vẫn cộng dồn với Dồn lực nếu đang giữ (hiếm khi làm được — phần thưởng xứng đáng).
+      // Mang TÊN chiêu lực cao nhất của con đó (Petal Dance! Hyper Beam!...).
       const me = s0.team[active];
+      const sig = signatureMove(me);
       const r = rollDamage(me, boss, rng, { atkMul: SPECIAL_MUL * (charge ? CHARGE_MUL : 1) });
       bossHp = Math.max(0, bossHp - r.dmg);
       log.push({
-        kind: 'special', dmg: r.dmg, mult: r.mult, crit: r.crit, key: me.key,
-        text: `${me.name} tung TUYỆT CHIÊU${guarding ? ' xuyên thủng phòng thủ' : ''}! ${r.dmg} sát thương!${r.crit ? ' Chí mạng! 💥' : ''}`,
+        kind: 'special', dmg: r.dmg, mult: r.mult, crit: r.crit, key: me.key, move: sig?.name,
+        text: `${me.name} tung TUYỆT CHIÊU${sig ? ` ${sig.name}` : ''}${guarding ? ' xuyên thủng phòng thủ' : ''}! ${r.dmg} sát thương!${r.crit ? ' Chí mạng! 💥' : ''}`,
       });
       charge = false;
       energy[active] = 0;
@@ -279,8 +284,8 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
     hp[active] = Math.max(0, hp[active] - r.dmg);
     if (r.dmg > 0) gainEnergy(active); // trúng đòn cũng tích nộ — bị ép phòng thủ vẫn có đường tiến
     log.push({
-      kind: 'boss-hit', dmg: r.dmg, mult: r.mult, crit: r.crit, key: target.key,
-      text: `${s0.boss.name} ${intent === 'heavy' ? 'giáng ĐÒN NẶNG' : 'phản công'}! ${target.name} ${blocking ? 'đỡ được, chỉ' : 'mất'} ${r.dmg} HP.${r.crit ? ' Chí mạng! 💥' : ''}`,
+      kind: 'boss-hit', dmg: r.dmg, mult: r.mult, crit: r.crit, key: target.key, move: r.move,
+      text: `${s0.boss.name} ${intent === 'heavy' ? `giáng ĐÒN NẶNG${r.move ? ` ${r.move}` : ''}` : r.move ? `phản công bằng ${r.move}` : 'phản công'}! ${target.name} ${blocking ? 'đỡ được, chỉ' : 'mất'} ${r.dmg} HP.${r.crit ? ' Chí mạng! 💥' : ''}`,
     });
     // Đòn nặng phá vỡ dồn lực — TRỪ KHI đỡ được. Nên lúc đang dồn mà boss báo đòn nặng
     // thì có hai đường: bung ra ngay, hoặc đỡ để giữ.

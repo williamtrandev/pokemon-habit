@@ -93,6 +93,25 @@ export function countersOf(defTypes: string[]): string[] {
   return ALL_TYPES.filter((t) => typeMultiplier([t], defTypes) > 1);
 }
 
+// ===== Chiêu thức mang vào trận =====
+// Con nào có `moves` thì đòn đánh DÙNG CHIÊU THẬT: hệ của CHIÊU quyết định khắc hệ (mở
+// đường chiêu phủ hệ ngoài hệ gốc), STAB thưởng khi chiêu cùng hệ với người dùng, lực chiêu
+// nắn sát thương. Không có moves -> công thức cũ theo hệ gốc (test/dữ liệu cũ vẫn chạy).
+export interface MoveRef {
+  name: string;
+  type: string;
+  power: number | null; // null = chiêu trạng thái, không dùng để đánh
+}
+
+export const STAB_MUL = 1.2;       // chiêu cùng hệ người dùng
+export const MOVE_POWER_PIVOT = 70; // lực chiêu 70 = hệ số 1.0
+// Lực chiêu nắn sát thương NHẸ quanh 1.0 (kẹp 0.75..1.35): để chiêu 120 không nghiền nát
+// cân bằng cũ vốn đo không có lực chiêu.
+export function movePowerFactor(power: number | null): number {
+  if (power == null) return 1;
+  return Math.max(0.75, Math.min(1.35, power / MOVE_POWER_PIVOT));
+}
+
 // ===== Chiến binh (combatant) suy từ chỉ số gốc =====
 export interface Combatant {
   key: string; // party key hoặc 'boss'
@@ -105,6 +124,31 @@ export interface Combatant {
   defP: number; // Thủ
   defS: number; // Đ.Thủ
   spd: number; // Tốc độ — quyết lượt + tỉ lệ chí mạng
+  moves?: MoveRef[]; // bộ chiêu (tối đa 4, từ PokéAPI) — undefined = đánh chay theo hệ gốc
+}
+
+// Chiêu TỐT NHẤT của attacker đánh vào bộ hệ phòng thủ này: điểm = khắc hệ × STAB × lực.
+// Tất định (không rng) nên gọi được cả từ UI để hiện "lượt này sẽ dùng chiêu gì".
+export function pickMove(attacker: Combatant, defTypes: string[]): { move: MoveRef; mult: number } | null {
+  const usable = (attacker.moves ?? []).filter((m) => m.power != null);
+  if (!usable.length) return null;
+  let best: MoveRef | null = null;
+  let bestScore = -1;
+  let bestMult = 1;
+  for (const m of usable) {
+    const mult = typeMultiplier([m.type], defTypes);
+    const stab = attacker.types.includes(m.type) ? STAB_MUL : 1;
+    const score = mult * stab * movePowerFactor(m.power);
+    if (score > bestScore) { bestScore = score; best = m; bestMult = mult; }
+  }
+  return best ? { move: best, mult: bestMult } : null;
+}
+
+// Chiêu LỰC CAO NHẤT — làm tên cho Tuyệt chiêu ("tung Petal Dance!").
+export function signatureMove(c: Combatant): MoveRef | null {
+  const usable = (c.moves ?? []).filter((m) => m.power != null);
+  if (!usable.length) return null;
+  return usable.reduce((a, b) => ((b.power ?? 0) > (a.power ?? 0) ? b : a));
 }
 
 // HP nhân lên để thanh máu tụt qua nhiều đòn (đẹp animation). ATK = đòn mạnh hơn
@@ -358,23 +402,28 @@ export interface DamageOpts {
 
 // Sát thương = Công (đòn mạnh hơn) GIẢM bởi Thủ/Đ.Thủ đúng loại của đối thủ,
 // × hệ khắc × phương sai × (chí mạng nếu có) × các bội ngoài.
+// Có bộ chiêu -> đánh bằng CHIÊU tốt nhất: hệ của chiêu + STAB + lực chiêu (xem pickMove);
+// `move` trong kết quả là tên chiêu vừa dùng để UI thuật lại. Không có -> công thức cũ.
 // Tách ra export để battleLive.ts dùng đúng CÙNG một công thức — hai engine lệch số là bug ngầm.
 export function rollDamage(
   attacker: Combatant,
   defender: Combatant,
   rng: () => number,
   opts: DamageOpts = {}
-): { dmg: number; mult: number; crit: boolean } {
-  const mult = typeMultiplier(attacker.types, defender.types);
+): { dmg: number; mult: number; crit: boolean; move?: string } {
+  const picked = pickMove(attacker, defender.types);
+  const mult = picked ? picked.mult : typeMultiplier(attacker.types, defender.types);
+  const stab = picked && attacker.types.includes(picked.move.type) ? STAB_MUL : 1;
+  const powerF = picked ? movePowerFactor(picked.move.power) : 1;
   const defStat = attacker.physical ? defender.defP : defender.defS;
   const variance = 0.85 + rng() * 0.15; // 0.85..1.0
   const crit = rng() < critChance(attacker.spd);
   const critM = crit ? CRIT_MULT : 1;
   const raw =
-    attacker.atk * (65 / (65 + defStat)) * 1.7 * mult * variance * critM *
+    attacker.atk * (65 / (65 + defStat)) * 1.7 * mult * stab * powerF * variance * critM *
     (opts.atkMul ?? 1) * (opts.takenMul ?? 1);
   const dmg = mult === 0 ? 0 : Math.max(1, Math.round(raw));
-  return { dmg, mult, crit };
+  return { dmg, mult, crit, ...(picked ? { move: picked.move.name } : null) };
 }
 
 function damage(attacker: Combatant, defender: Combatant, rng: () => number): { dmg: number; mult: number; crit: boolean } {

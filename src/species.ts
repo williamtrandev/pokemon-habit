@@ -198,8 +198,11 @@ export async function fetchMoves(pokemonId: number): Promise<MoveInfo[]> {
         return alt;
       }
     }
-    const top = [...byName.entries()].sort((a, b) => a[1] - b[1]).slice(0, 4).map(([n]) => n);
-    const infos = await Promise.all(
+    // Lấy RỘNG 8 ứng viên sớm nhất rồi mới lọc: bộ 4 chiêu này giờ DÙNG THẬT trong đấu boss
+    // (xem pickMove trong battle.ts), mà 4 chiêu cấp thấp nhất thường dính 2 chiêu trạng thái
+    // (Growl, Leer...) không đánh được ai.
+    const top = [...byName.entries()].sort((a, b) => a[1] - b[1]).slice(0, 8).map(([n]) => n);
+    const fetched = await Promise.all(
       top.map(async (n): Promise<MoveInfo> => {
         try {
           const mj = await (await fetch(`https://pokeapi.co/api/v2/move/${n}`)).json();
@@ -209,6 +212,10 @@ export async function fetchMoves(pokemonId: number): Promise<MoveInfo[]> {
         }
       })
     );
+    // Giữ 4: chiêu CÓ LỰC trước (power giảm dần), thiếu thì bù chiêu trạng thái theo cấp học.
+    const damaging = fetched.filter((m) => m.power != null).sort((a, b) => (b.power ?? 0) - (a.power ?? 0));
+    const status = fetched.filter((m) => m.power == null);
+    const infos = [...damaging, ...status].slice(0, 4);
     moveCache.set(pokemonId, infos);
     return infos;
   } catch {

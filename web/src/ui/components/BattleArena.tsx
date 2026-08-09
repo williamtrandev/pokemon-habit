@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type BossPhase, type Combatant, phasesOf } from '@app/battle';
+import { type BossPhase, type Combatant, phasesOf, pickMove, signatureMove } from '@app/battle';
 import {
   BERRY_COUNT,
   BLOCK_TAKEN,
@@ -666,6 +666,9 @@ function FightView({
   const bossNow = bossAtPhase(st.boss, st.phases, st.phase);
   const intent = INTENT_VI[st.intent];
   const alive = st.hp.filter((h) => h > 0).length;
+  // Chiêu SẼ dùng ở lượt này (khớp rollDamage) — hiện ngay trên nút Đánh cho sinh động.
+  const myMove = pickMove(me, bossNow.types);
+  const mySig = signatureMove(me);
 
   return (
     <>
@@ -814,7 +817,8 @@ function FightView({
           <ResultBar win={st.over === 'win'} reward={reward} onClose={onClose} />
         ) : (
           <div className="flex flex-wrap items-center gap-2.5">
-            <CmdBtn k="1" label="Đánh" hint="Ra đòn" tone="primary" disabled={busy} onClick={() => onAct({ kind: 'attack' })} />
+            <CmdBtn k="1" label="Đánh" hint={myMove ? `${myMove.move.name} ×${myMove.mult}` : 'Ra đòn'}
+              tone="primary" disabled={busy} onClick={() => onAct({ kind: 'attack' })} />
             <CmdBtn
               k="2"
               label="Đỡ đòn"
@@ -841,8 +845,8 @@ function FightView({
             />
             <CmdBtn
               k="6"
-              label={`Tuyệt chiêu 🌟 ${Math.min(st.energy[st.active] ?? 0, SPECIAL_ENERGY)}/${SPECIAL_ENERGY}`}
-              hint={`×${SPECIAL_MUL} · xuyên phòng thủ · +Áp Chế`}
+              label={`🌟 ${mySig?.name ?? 'Tuyệt chiêu'} ${Math.min(st.energy[st.active] ?? 0, SPECIAL_ENERGY)}/${SPECIAL_ENERGY}`}
+              hint={`tuyệt chiêu ×${SPECIAL_MUL} · xuyên phòng thủ · +Áp Chế`}
               tone="violet"
               disabled={busy || !canAct(st, { kind: 'special' })}
               onClick={() => onAct({ kind: 'special' })}

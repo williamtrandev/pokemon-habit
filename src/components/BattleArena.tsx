@@ -6,7 +6,7 @@ import { Modal, View, Text, StyleSheet, Pressable, ScrollView, Animated, Easing,
 const SAFE_TOP = Platform.OS === 'ios' ? 56 : (StatusBar.currentHeight ?? 24) + 8;
 const SAFE_BOTTOM = Platform.OS === 'ios' ? 40 : 20;
 import CreatureImage from './CreatureImage';
-import { Combatant, BossPhase, BossTier, typeMultiplier, countersOf, phasesOf, ENRAGE_ATK_MUL } from '../battle';
+import { Combatant, BossPhase, BossTier, typeMultiplier, countersOf, phasesOf, ENRAGE_ATK_MUL, pickMove, signatureMove } from '../battle';
 import {
   LiveState, LiveAction, LiveEvent, BossIntent, INTENT_VI,
   startLive, stepLive, canAct, autoAction, bossAtPhase,
@@ -182,7 +182,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
         lunge(playerLunge); shake(bossShake);
         setDmg({ id, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
         setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
-        setBanner({ text: 'TUYỆT CHIÊU! 🌟', tone: 'good' });
+        setBanner({ text: e.move ? `🌟 ${e.move}!` : 'TUYỆT CHIÊU! 🌟', tone: 'good' });
         break;
       case 'boss-hit': {
         feedbackTap();
@@ -297,7 +297,9 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
 
   const bossNow = st ? bossAtPhase(st.boss, st.phases, st.phase) : boss;
   const me = st ? st.team[view.active] : null;
-  const myMult = st && me ? typeMultiplier(me.types, bossNow.types) : 1;
+  // Có bộ chiêu -> hệ số/nhãn theo CHIÊU sẽ dùng (đúng với rollDamage); không thì hệ gốc.
+  const myMove = st && me ? pickMove(me, bossNow.types) : null;
+  const myMult = myMove ? myMove.mult : st && me ? typeMultiplier(me.types, bossNow.types) : 1;
   const myTaken = st && me ? typeMultiplier(bossNow.types, me.types) : 1;
 
   return (
@@ -382,10 +384,12 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
                     onPick={(i) => act({ kind: 'swap', index: i })} styles={styles}
                   />
                   {/* Tuyệt chiêu: nút RIÊNG full bề rộng — nộ đầy mới sáng, kèm thanh nộ. */}
-                  <SpecialBtn energy={st.energy[st.active] ?? 0} disabled={busy || !canAct(st, { kind: 'special' })}
+                  <SpecialBtn energy={st.energy[st.active] ?? 0} moveName={me ? signatureMove(me)?.name : undefined}
+                    disabled={busy || !canAct(st, { kind: 'special' })}
                     onPress={() => act({ kind: 'special' })} styles={styles} />
                   <View style={styles.cmdGrid}>
-                    <CmdBtn label="Đánh" sub={st.charge ? `bung ×${CHARGE_MUL}` : `×${myMult} hệ`} icon="⚔️"
+                    <CmdBtn label="Đánh"
+                      sub={st.charge ? `bung ×${CHARGE_MUL}` : myMove ? `${myMove.move.name} ×${myMult}` : `×${myMult} hệ`} icon="⚔️"
                       tone="attack" disabled={busy} onPress={() => act({ kind: 'attack' })} styles={styles} />
                     <CmdBtn label="Đỡ đòn" sub={`chặn ${Math.round((1 - BLOCK_TAKEN) * 100)}%`} icon="🛡️"
                       tone="block" disabled={busy} onPress={() => act({ kind: 'block' })} styles={styles} />
@@ -510,8 +514,8 @@ function BenchRow({ st, view, teamMap, bossTypes, open, onPick, styles }: {
 
 // Nút Tuyệt chiêu + thanh NỘ. Nộ tích khi ra đòn / trúng đòn (xem battleLive.ts) — hiển thị
 // ngay trên nút để người chơi thấy mình đang "sắp có gì đó" kể cả lúc bị ép phòng thủ.
-function SpecialBtn({ energy, disabled, onPress, styles }: {
-  energy: number; disabled: boolean; onPress: () => void; styles: any;
+function SpecialBtn({ energy, moveName, disabled, onPress, styles }: {
+  energy: number; moveName?: string; disabled: boolean; onPress: () => void; styles: any;
 }) {
   const ready = energy >= SPECIAL_ENERGY;
   return (
@@ -519,8 +523,10 @@ function SpecialBtn({ energy, disabled, onPress, styles }: {
       style={[styles.special, ready ? styles.specialReady : styles.specialDim, disabled && ready && styles.btnOff]}>
       <Text style={styles.cmdIcon}>🌟</Text>
       <View style={{ flex: 1 }}>
-        <Text style={styles.cmdLabel} numberOfLines={1}>Tuyệt chiêu {ready ? '— SẴN SÀNG!' : ''}</Text>
-        <Text style={styles.cmdSub} numberOfLines={1}>×{SPECIAL_MUL} · xuyên phòng thủ · +Áp Chế</Text>
+        <Text style={styles.cmdLabel} numberOfLines={1}>
+          {moveName ?? 'Tuyệt chiêu'} {ready ? '— SẴN SÀNG!' : ''}
+        </Text>
+        <Text style={styles.cmdSub} numberOfLines={1}>tuyệt chiêu ×{SPECIAL_MUL} · xuyên phòng thủ · +Áp Chế</Text>
       </View>
       <View style={styles.energyRow}>
         {Array.from({ length: SPECIAL_ENERGY }, (_, i) => (

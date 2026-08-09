@@ -6,6 +6,7 @@ import {
   phaseAt, phasesOf, lineupScale, lineupAtkScale, SCALE_BASE_POWER, SCALE_MAX, SCALE_ATK_SHARE,
   ENRAGE_ATK_MUL, ALL_TYPES,
   TEAM_POWER_MILESTONES, TEAM_POWER_STEP, teamMilestoneAt, teamMilestonesUpTo, nextTeamMilestone, teamRank,
+  MoveRef, pickMove, signatureMove, rollDamage, movePowerFactor,
 } from '../battle';
 
 const stats = (hp: number, atk: number, spd: number) => [
@@ -247,5 +248,65 @@ describe('thưởng', () => {
     expect(elite.hpMul).toBeGreaterThan(easy.hpMul);
     expect(elite.atkMul).toBeGreaterThan(easy.atkMul);
     expect(elite.candyMul).toBeGreaterThan(easy.candyMul);
+  });
+});
+
+describe('chiêu thức (moves)', () => {
+  const stats = [
+    { name: 'hp', value: 80 }, { name: 'attack', value: 100 }, { name: 'defense', value: 60 },
+    { name: 'special-attack', value: 90 }, { name: 'special-defense', value: 70 }, { name: 'speed', value: 50 },
+  ];
+  const rng1 = () => 0.5;
+  const mkMon = (types: string[], moves?: MoveRef[]): Combatant => {
+    const c = toCombatant('a', 1, 'a', types, stats);
+    c.moves = moves;
+    return c;
+  };
+
+  it('pickMove chọn chiêu PHỦ HỆ khắc ×2 thay vì chiêu cùng hệ ×1', () => {
+    // Con hệ nước đánh boss cỏ: Ice Beam (×2, không STAB) phải thắng Surf (×0.5 dù STAB).
+    const c = mkMon(['water'], [
+      { name: 'Surf', type: 'water', power: 90 },
+      { name: 'Ice Beam', type: 'ice', power: 90 },
+      { name: 'Growl', type: 'normal', power: null },
+    ]);
+    const p = pickMove(c, ['grass']);
+    expect(p!.move.name).toBe('Ice Beam');
+    expect(p!.mult).toBe(2);
+  });
+
+  it('cùng hệ số khắc thì STAB thắng; toàn chiêu trạng thái -> null', () => {
+    const c = mkMon(['water'], [
+      { name: 'Surf', type: 'water', power: 90 },
+      { name: 'Slam', type: 'normal', power: 90 },
+    ]);
+    expect(pickMove(c, ['fire'])!.move.name).toBe('Surf'); // cả hai ×2? không: water×2, normal×1 — vẫn Surf
+    const statusOnly = mkMon(['water'], [{ name: 'Growl', type: 'normal', power: null }]);
+    expect(pickMove(statusOnly, ['fire'])).toBeNull();
+  });
+
+  it('rollDamage có moves -> trả tên chiêu; không moves -> không có move, số cũ giữ nguyên', () => {
+    const boss = toCombatant('boss', 2, 'boss', ['grass'], stats);
+    const withMoves = rollDamage(mkMon(['water'], [{ name: 'Ice Beam', type: 'ice', power: 90 }]), boss, rng1);
+    expect(withMoves.move).toBe('Ice Beam');
+    const bare = rollDamage(mkMon(['water']), boss, rng1);
+    expect(bare.move).toBeUndefined();
+  });
+
+  it('signatureMove = chiêu lực cao nhất', () => {
+    const c = mkMon(['fire'], [
+      { name: 'Ember', type: 'fire', power: 40 },
+      { name: 'Flare Blitz', type: 'fire', power: 120 },
+      { name: 'Growl', type: 'normal', power: null },
+    ]);
+    expect(signatureMove(c)!.name).toBe('Flare Blitz');
+    expect(signatureMove(mkMon(['fire']))).toBeNull();
+  });
+
+  it('movePowerFactor kẹp 0.75..1.35, chiêu trạng thái = 1', () => {
+    expect(movePowerFactor(null)).toBe(1);
+    expect(movePowerFactor(70)).toBe(1);
+    expect(movePowerFactor(20)).toBe(0.75);
+    expect(movePowerFactor(250)).toBe(1.35);
   });
 });
