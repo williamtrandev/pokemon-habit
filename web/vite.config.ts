@@ -130,9 +130,15 @@ export default defineConfig(({ mode }) => {
       dedupe: ['react', 'react-dom'],
     },
     // ../src đọc process.env.EXPO_PUBLIC_* (quy ước Expo). Bơm sẵn lúc build.
+    // Ưu tiên .env ở gốc repo (máy dev); không có thì lấy từ biến môi trường CI
+    // (Vercel/Actions đặt env var chứ không có file .env).
     define: {
-      'process.env.EXPO_PUBLIC_SUPABASE_URL': JSON.stringify(env.EXPO_PUBLIC_SUPABASE_URL ?? ''),
-      'process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''),
+      'process.env.EXPO_PUBLIC_SUPABASE_URL': JSON.stringify(
+        env.EXPO_PUBLIC_SUPABASE_URL ?? process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
+      ),
+      'process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(
+        env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''
+      ),
       'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development'),
     },
     server: {

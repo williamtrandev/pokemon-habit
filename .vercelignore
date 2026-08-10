@@ -1,0 +1,14 @@
+# Chỉ cần mã nguồn để build web (web/ + src/ dùng chung). Mọi thứ sinh ra/nặng đều bỏ.
+node_modules
+**/node_modules
+ios
+android
+web/dev-dist
+web/dist
+.codegraph
+.cursor
+.expo
+coverage
+supabase
+scripts
+docs

@@ -50,3 +50,5 @@ coverage/
 # local tooling
 .codegraph/
 .cursor/
+.vercel
+.env*
