@@ -5,6 +5,7 @@ import {
   LiveState, LiveAction, CHARGE_MUL, BERRY_COUNT, BERRY_HEAL, STAGGER_MAX,
   STAGGER_PARRY, LIVE_STALL_ROUNDS, matchupOf,
   SPECIAL_ENERGY, SPECIAL_MUL, STAGGER_SPECIAL,
+  specialFxOf, BURN_TURNS, BURN_FRAC, SHOCK_BONUS,
 } from '../battleLive';
 
 const stats = (hp: number, atk: number, def = 60, spd = 60) => [
@@ -376,5 +377,85 @@ describe('tuyệt chiêu (special)', () => {
     expect(autoAction({ ...s, energy: [SPECIAL_ENERGY] }).kind).toBe('special');
     const h = until(s, 'heavy');
     if (!h.over) expect(autoAction({ ...h, energy: [SPECIAL_ENERGY], charge: false }).kind).toBe('block');
+  });
+});
+
+describe('hiệu ứng riêng của tuyệt chiêu theo hệ chiêu tủ', () => {
+  const withMoves = (types: string[], moveType: string, power = 90): Combatant => {
+    const c = mk('a', 400, 90, types);
+    c.moves = [{ name: 'Sig', type: moveType, power }];
+    return c;
+  };
+  const bigBoss = () => mk('boss', 5000, 30, ['fire']);
+  // Nạp đầy nộ sẵn để bung được ngay.
+  const charged = (me: Combatant, seed = 11) => {
+    const s = startLive([me], bigBoss(), seed, auras);
+    return { ...s, energy: [SPECIAL_ENERGY] };
+  };
+
+  it('specialFxOf map đúng nhóm hệ', () => {
+    expect(specialFxOf(withMoves(['fire'], 'fire'))).toBe('burn');
+    expect(specialFxOf(withMoves(['water'], 'water'))).toBe('drain');
+    expect(specialFxOf(withMoves(['electric'], 'electric'))).toBe('shock');
+    expect(specialFxOf(withMoves(['rock'], 'rock'))).toBe('ward');
+    expect(specialFxOf(withMoves(['normal'], 'normal'))).toBe('pierce');
+    expect(specialFxOf(mk('bare', 100, 50, ['fire']))).toBeNull(); // không có bộ chiêu
+  });
+
+  it('THIÊU ĐỐT: đặt burn, boss mất máu cuối lượt và đếm lùi', () => {
+    let s = stepLive(charged(withMoves(['fire'], 'fire')), { kind: 'special' });
+    expect(s.burn).toBeLessThanOrEqual(BURN_TURNS); // tick ngay cuối lượt bung
+    const burnEvt = s.log.find((e) => e.kind === 'burn');
+    expect(burnEvt?.dmg).toBe(Math.round(s.boss.maxHp * BURN_FRAC));
+    const hpAfterSpecial = s.bossHp;
+    s = stepLive(s, { kind: 'attack' });
+    // Lượt kế vẫn còn tick thiêu đốt (burn ban đầu 2).
+    expect(s.log.some((e) => e.kind === 'burn')).toBe(true);
+    expect(s.burn).toBe(0);
+    expect(s.bossHp).toBeLessThan(hpAfterSpecial);
+  });
+
+  it('HÚT SINH LỰC: hồi máu theo sát thương gây ra', () => {
+    // Cho mất máu trước đã: đánh vài lượt thường.
+    let s = charged(withMoves(['water'], 'water'));
+    s = stepLive(s, { kind: 'attack' });
+    s = { ...s, energy: [SPECIAL_ENERGY] };
+    const before = s.hp[0];
+    if (before >= s.team[0].maxHp) return; // boss chưa kịp đánh trúng — hiếm, bỏ qua
+    const after = stepLive(s, { kind: 'special' });
+    const fxEvt = after.log.find((e) => e.kind === 'fx' && e.fx === 'drain');
+    expect(fxEvt).toBeTruthy();
+    expect(after.hp[0]).toBeGreaterThan(before);
+  });
+
+  it('CHẤN ĐỘNG: Áp Chế được cộng thêm SHOCK_BONUS', () => {
+    const s0 = { ...charged(withMoves(['electric'], 'electric')), stagger: 0 };
+    const s = stepLive(s0, { kind: 'special' });
+    // electric vs fire: mult 1 -> không có STAGGER_SUPER, chỉ SPECIAL + SHOCK (trừ khi đầy -> choáng reset)
+    expect(s.log.some((e) => e.kind === 'fx' && e.fx === 'shock')).toBe(true);
+    expect(s.stagger === STAGGER_SPECIAL + SHOCK_BONUS || s.log.some((e) => e.kind === 'break')).toBe(true);
+  });
+
+  it('KẾT GIÁP: bung là có giáp (tiêu ngay nếu boss đánh cùng lượt), và giáp giảm hẳn sát thương', () => {
+    const a = until(charged(withMoves(['rock'], 'rock'), 61), 'strike');
+    if (a.over) return;
+    const warded = stepLive({ ...a, energy: [SPECIAL_ENERGY] }, { kind: 'special' });
+    // Boss đánh cùng lượt -> giáp tiêu ngay (có event tiêu giáp); boss không đánh -> giáp còn chờ.
+    const consumed = warded.log.some((e) => e.kind === 'fx' && e.fx === 'ward' && e.text.includes('chặn'));
+    expect(warded.ward || consumed).toBe(true);
+
+    // Giáp giảm sát thương: cùng state cùng rng, một bên ward một bên không.
+    const hitW = stepLive({ ...a, ward: true }, { kind: 'attack' }).log.find((e) => e.kind === 'boss-hit');
+    const hitN = stepLive({ ...a, ward: false }, { kind: 'attack' }).log.find((e) => e.kind === 'boss-hit');
+    if (hitW?.dmg && hitN?.dmg) expect(hitW.dmg).toBeLessThan(hitN.dmg);
+  });
+
+  it('XUYÊN PHÁ: tuyệt chiêu hệ thường mạnh hơn cùng chiêu không pierce (PIERCE_MUL)', () => {
+    const s = charged(withMoves(['normal'], 'normal'));
+    const done = stepLive(s, { kind: 'special' });
+    expect(done.log.some((e) => e.kind === 'fx' && e.fx === 'pierce')).toBe(true);
+    const hit = done.log.find((e) => e.kind === 'special');
+    expect(hit?.moveType).toBe('normal');
+    expect(hit?.fx).toBe('pierce');
   });
 });

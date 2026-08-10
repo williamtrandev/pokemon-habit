@@ -65,6 +65,40 @@ export const SPECIAL_ENERGY = 4;   // số nộ để đầy thanh
 export const SPECIAL_MUL = 2.4;    // bội sát thương tuyệt chiêu
 export const STAGGER_SPECIAL = 2;  // tuyệt chiêu cộng thẳng bấy nhiêu Áp Chế
 
+// ===== Hiệu ứng RIÊNG của tuyệt chiêu theo HỆ chiêu tủ =====
+// "Mỗi con phải đặc biệt": hệ của chiêu lực cao nhất quyết định hiệu ứng phụ khi bung,
+// nên đội hình khác nhau cho lối chơi tuyệt chiêu khác nhau — không con nào bung giống con nào.
+export type SpecialFx = 'burn' | 'drain' | 'shock' | 'ward' | 'pierce';
+
+export const SPECIAL_FX_BY_TYPE: Record<string, SpecialFx> = {
+  fire: 'burn', dragon: 'burn', dark: 'burn',
+  water: 'drain', grass: 'drain', fairy: 'drain', bug: 'drain',
+  electric: 'shock', ice: 'shock', psychic: 'shock', ghost: 'shock',
+  rock: 'ward', steel: 'ward', ground: 'ward',
+  normal: 'pierce', fighting: 'pierce', flying: 'pierce', poison: 'pierce',
+};
+
+export const SPECIAL_FX_VI: Record<SpecialFx, { label: string; hint: string }> = {
+  burn:   { label: 'Thiêu Đốt',   hint: 'boss mất thêm máu 2 lượt kế' },
+  drain:  { label: 'Hút Sinh Lực', hint: 'hồi máu bằng 30% sát thương' },
+  shock:  { label: 'Chấn Động',   hint: 'cộng gấp đôi Áp Chế' },
+  ward:   { label: 'Kết Giáp',    hint: 'đòn boss kế tiếp giảm 45%' },
+  pierce: { label: 'Xuyên Phá',   hint: 'sát thương khoan thủng +25%' },
+};
+
+export const BURN_TURNS = 2;     // thiêu đốt kéo dài bấy nhiêu lượt
+export const BURN_FRAC = 0.04;   // mỗi lượt boss mất bấy nhiêu phần máu tối đa
+export const DRAIN_FRAC = 0.3;   // hút sinh lực = phần sát thương gây ra
+export const SHOCK_BONUS = 2;    // Chấn Động cộng THÊM Áp Chế (tổng = STAGGER_SPECIAL + đây)
+export const WARD_TAKEN = 0.55;  // Kết Giáp: đòn boss kế tiếp chỉ còn bấy nhiêu
+export const PIERCE_MUL = 1.25;  // Xuyên Phá: bội thêm lên chính cú tuyệt chiêu
+
+// Hiệu ứng tuyệt chiêu của MỘT con (null = không có bộ chiêu, bung bản thường).
+export function specialFxOf(c: Combatant): SpecialFx | null {
+  const sig = signatureMove(c);
+  return sig ? (SPECIAL_FX_BY_TYPE[sig.type] ?? 'pierce') : null;
+}
+
 // Trận tương tác dài hơn trận tự chạy, nên mốc "đánh chậm" của battle.ts (8 lượt/pha)
 // siết quá tay: chơi phòng thủ đúng bài lại bị boss hồi máu tới mức bất khả thắng.
 export const LIVE_STALL_ROUNDS = 12;
@@ -95,7 +129,7 @@ export type LiveAction =
 
 // Một mẩu chuyện của lượt vừa rồi — UI phát lần lượt để ra animation.
 export interface LiveEvent {
-  kind: 'player-hit' | 'special' | 'boss-hit' | 'charge' | 'block' | 'swap' | 'berry' | 'break' | 'guard' | 'drain' | 'faint' | 'phase' | 'regen' | 'shatter';
+  kind: 'player-hit' | 'special' | 'boss-hit' | 'charge' | 'block' | 'swap' | 'berry' | 'break' | 'guard' | 'drain' | 'faint' | 'phase' | 'regen' | 'shatter' | 'burn' | 'fx';
   text: string;
   dmg?: number;
   mult?: number;
@@ -103,6 +137,8 @@ export interface LiveEvent {
   heal?: number;
   key?: string; // con liên quan (vào sân / gục / được hồi)
   move?: string; // tên chiêu vừa dùng (nếu con đó có bộ chiêu) — UI hiện banner/nhật ký
+  moveType?: string; // hệ của chiêu — UI tô màu cut-in tuyệt chiêu theo hệ
+  fx?: SpecialFx; // hiệu ứng phụ của tuyệt chiêu (kind 'special'/'fx')
 }
 
 export interface LiveState {
@@ -115,6 +151,8 @@ export interface LiveState {
   phase: number;
   charge: boolean;       // đang dồn lực
   energy: number[];      // NỘ riêng từng con (0..SPECIAL_ENERGY), giữ nguyên khi rút về
+  burn: number;          // số lượt Thiêu Đốt còn lại trên boss (tuyệt chiêu hệ lửa/rồng/bóng tối)
+  ward: boolean;         // Kết Giáp đang chờ — đòn boss KẾ TIẾP giảm còn WARD_TAKEN
   berries: number;
   stagger: number;
   intent: BossIntent;    // đòn boss SẼ ra ở lượt tới
@@ -159,6 +197,8 @@ export function startLive(team: Combatant[], boss: Combatant, seed: number, aura
     phase: 0,
     charge: false,
     energy: team.map(() => 0),
+    burn: 0,
+    ward: false,
     berries: BERRY_COUNT,
     stagger: 0,
     intent: pickIntent(rng0 / 4294967296, false),
@@ -193,7 +233,7 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
   const hp = [...s0.hp];
   const energy = [...s0.energy];
   const gainEnergy = (i: number) => { energy[i] = Math.min(SPECIAL_ENERGY, (energy[i] ?? 0) + 1); };
-  let { bossHp, active, charge, berries, stagger, phase, roundsInPhase } = s0;
+  let { bossHp, active, charge, berries, stagger, phase, roundsInPhase, burn, ward } = s0;
   const log: LiveEvent[] = [];
   const intent = s0.intent;
   const boss = bossAtPhase(s0.boss, s0.phases, phase);
@@ -224,13 +264,17 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
     case 'special': {
       // Tuyệt chiêu: XUYÊN phòng thủ (không nhân GUARD_TAKEN), cộng thẳng Áp Chế,
       // vẫn cộng dồn với Dồn lực nếu đang giữ (hiếm khi làm được — phần thưởng xứng đáng).
-      // Mang TÊN chiêu lực cao nhất của con đó (Petal Dance! Hyper Beam!...).
+      // Mang TÊN chiêu lực cao nhất của con đó, và HIỆU ỨNG RIÊNG theo hệ chiêu (SPECIAL_FX_BY_TYPE).
       const me = s0.team[active];
       const sig = signatureMove(me);
-      const r = rollDamage(me, boss, rng, { atkMul: SPECIAL_MUL * (charge ? CHARGE_MUL : 1) });
+      const fx = specialFxOf(me);
+      const r = rollDamage(me, boss, rng, {
+        atkMul: SPECIAL_MUL * (charge ? CHARGE_MUL : 1) * (fx === 'pierce' ? PIERCE_MUL : 1),
+      });
       bossHp = Math.max(0, bossHp - r.dmg);
       log.push({
-        kind: 'special', dmg: r.dmg, mult: r.mult, crit: r.crit, key: me.key, move: sig?.name,
+        kind: 'special', dmg: r.dmg, mult: r.mult, crit: r.crit, key: me.key,
+        move: sig?.name, moveType: sig?.type, fx: fx ?? undefined,
         text: `${me.name} tung TUYỆT CHIÊU${sig ? ` ${sig.name}` : ''}${guarding ? ' xuyên thủng phòng thủ' : ''}! ${r.dmg} sát thương!${r.crit ? ' Chí mạng! 💥' : ''}`,
       });
       charge = false;
@@ -238,6 +282,25 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
       stagger += STAGGER_SPECIAL;
       if (r.mult >= 4) stagger += STAGGER_QUAD;
       else if (r.mult >= 2) stagger += STAGGER_SUPER;
+      // Hiệu ứng phụ theo hệ — mỗi dòng một sự kiện 'fx' riêng để UI hiện banner đúng nhịp.
+      if (fx === 'burn') {
+        burn = BURN_TURNS;
+        log.push({ kind: 'fx', fx, key: me.key, text: `🔥 ${SPECIAL_FX_VI.burn.label}! Boss sẽ mất máu ${BURN_TURNS} lượt kế.` });
+      } else if (fx === 'drain' && r.dmg > 0) {
+        const heal = Math.min(Math.round(r.dmg * DRAIN_FRAC), me.maxHp - hp[active]);
+        if (heal > 0) {
+          hp[active] += heal;
+          log.push({ kind: 'fx', fx, heal, key: me.key, text: `💚 ${SPECIAL_FX_VI.drain.label}! ${me.name} hồi ${heal} HP.` });
+        }
+      } else if (fx === 'shock') {
+        stagger += SHOCK_BONUS;
+        log.push({ kind: 'fx', fx, key: me.key, text: `⚡ ${SPECIAL_FX_VI.shock.label}! +${SHOCK_BONUS} Áp Chế.` });
+      } else if (fx === 'ward') {
+        ward = true;
+        log.push({ kind: 'fx', fx, key: me.key, text: `🛡️ ${SPECIAL_FX_VI.ward.label}! Đòn boss kế tiếp giảm ${Math.round((1 - WARD_TAKEN) * 100)}%.` });
+      } else if (fx === 'pierce') {
+        log.push({ kind: 'fx', fx, key: me.key, text: `🗡️ ${SPECIAL_FX_VI.pierce.label}! Sát thương khoan thủng ×${PIERCE_MUL}.` });
+      }
       break;
     }
     case 'block':
@@ -277,9 +340,15 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
   } else if (!stunned) {
     const target = s0.team[active];
     const blocking = action.kind === 'block';
+    // Kết Giáp (tuyệt chiêu hệ đá/thép/đất): đòn boss KẾ TIẾP giảm — cộng dồn được với đỡ đòn.
+    const wardMul = ward ? WARD_TAKEN : 1;
+    if (ward) {
+      ward = false;
+      log.push({ kind: 'fx', fx: 'ward', text: `🛡️ Kết Giáp chặn bớt đòn của ${s0.boss.name}!` });
+    }
     const r = rollDamage(boss, target, rng, {
       atkMul: intent === 'heavy' ? HEAVY_MUL : 1,
-      takenMul: blocking ? BLOCK_TAKEN : action.kind === 'swap' ? SWAP_TAKEN : 1,
+      takenMul: (blocking ? BLOCK_TAKEN : action.kind === 'swap' ? SWAP_TAKEN : 1) * wardMul,
     });
     hp[active] = Math.max(0, hp[active] - r.dmg);
     if (r.dmg > 0) gainEnergy(active); // trúng đòn cũng tích nộ — bị ép phòng thủ vẫn có đường tiến
@@ -321,6 +390,14 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
     }
   }
 
+  // ===== 3.5 Thiêu Đốt: boss mất máu cuối lượt =====
+  if (!over && bossHp > 0 && burn > 0) {
+    const tick = Math.round(s0.boss.maxHp * BURN_FRAC);
+    bossHp = Math.max(0, bossHp - tick);
+    burn -= 1;
+    log.push({ kind: 'burn', dmg: tick, text: `🔥 Thiêu Đốt! ${s0.boss.name} mất ${tick} HP${burn > 0 ? ` (còn ${burn} lượt)` : ''}.` });
+  }
+
   // ===== 4. Đổi pha / đánh chậm bị hồi máu =====
   if (!over) {
     if (bossHp <= 0) over = 'win';
@@ -352,7 +429,7 @@ export function stepLive(s0: LiveState, action: LiveAction): LiveState {
   const enragedNext = s0.phases[phase]?.enraged ?? false;
   return {
     ...s0,
-    hp, energy, active, bossHp, charge, berries, stagger, phase, roundsInPhase, over,
+    hp, energy, active, bossHp, charge, berries, stagger, phase, roundsInPhase, over, burn, ward,
     intent: over ? s0.intent : pickIntent(rng(), enragedNext),
     turn: s0.turn + 1,
     rng: seed,

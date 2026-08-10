@@ -11,6 +11,9 @@ import {
   MAX_LINEUP,
   SPECIAL_ENERGY,
   SPECIAL_MUL,
+  SPECIAL_FX_VI,
+  type SpecialFx,
+  specialFxOf,
   STAGGER_MAX,
   autoAction,
   bossAtPhase,
@@ -62,6 +65,7 @@ interface Props {
 const STEP = 560; // ms mỗi mẩu sự kiện trong một lượt
 const HIT = 180; // ms từ lúc lao tới lúc trúng đòn
 const AUTO_GAP = 240; // nghỉ giữa hai lượt khi bật Tự đánh
+const CUTIN_MS = 1100; // màn cut-in tuyệt chiêu kiểu phim, chạy TRƯỚC cú đánh
 
 const hpColor = (r: number) => (r > 0.5 ? '#22C55E' : r > 0.2 ? '#EAB308' : '#EF4444');
 const multColor = (m: number) => (m === 0 ? '#94A3B8' : m >= 2 ? '#22C55E' : m < 1 ? '#EF4444' : '#CBD5E1');
@@ -107,6 +111,8 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
   const [dmg, setDmg] = useState<{ id: number; val: number; side: 'boss' | 'player'; mult: number; crit: boolean } | null>(
     null
   );
+  // Cut-in tuyệt chiêu: overlay kiểu phim chạy trước cú đánh (xem CutIn).
+  const [cutin, setCutin] = useState<{ id: number; name: string; type: string; monId: number; monKey: string; fx: SpecialFx | null } | null>(null);
   const [reward, setReward] = useState<{ candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null>(null);
 
   const timers = useRef<number[]>([]);
@@ -160,12 +166,47 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
       setBusy(true);
       setJournal((j) => [...j, ...next.log]);
 
+      // Lịch phát CO GIÃN: sự kiện thường chiếm STEP, riêng tuyệt chiêu chiếm thêm CUTIN_MS
+      // cho màn cut-in kiểu phim (tối màn, tia sáng theo hệ, sprite + tên chiêu lao vào).
+      let cursor = 0;
+      const offsets = next.log.map((e) => {
+        const at = cursor;
+        cursor += e.kind === 'special' ? STEP + CUTIN_MS : STEP;
+        return at;
+      });
+
       next.log.forEach((e, i) => {
         timers.current.push(
           window.setTimeout(() => {
             // Hoạt ảnh theo loại sự kiện.
-            if (e.kind === 'player-hit' || e.kind === 'special') {
-              if (e.kind === 'special') feedbackEvolve();
+            if (e.kind === 'special') {
+              // 1) Cut-in trước — trận dừng lại nhìn con này toả sáng.
+              feedbackEvolve();
+              const monId = cur.team.find((c) => c.key === e.key)?.id ?? 0;
+              setCutin({
+                id: dmgSeq.current++,
+                name: e.move ?? 'TUYỆT CHIÊU',
+                type: e.moveType ?? 'normal',
+                monId,
+                monKey: e.key ?? '',
+                fx: e.fx ?? null,
+              });
+              // 2) Hết cut-in mới ra đòn.
+              timers.current.push(
+                window.setTimeout(() => {
+                  setCutin(null);
+                  setFx((f) => ({ ...f, lunge: 'player', hit: null, guard: false, flash: null, tick: f.tick + 1 }));
+                  timers.current.push(
+                    window.setTimeout(() => {
+                      feedbackTap();
+                      setFx((f) => ({ ...f, hit: 'boss', flash: 'special', tick: f.tick + 1 }));
+                      setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
+                      setDmg({ id: dmgSeq.current++, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
+                    }, HIT)
+                  );
+                }, CUTIN_MS)
+              );
+            } else if (e.kind === 'player-hit') {
               setFx((f) => ({ ...f, lunge: 'player', hit: null, guard: false, flash: null, tick: f.tick + 1 }));
               timers.current.push(
                 window.setTimeout(() => {
@@ -173,7 +214,7 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
                   setFx((f) => ({
                     ...f,
                     hit: 'boss',
-                    flash: e.kind === 'special' ? 'special' : e.crit ? 'crit' : f.flash,
+                    flash: e.crit ? 'crit' : f.flash,
                     tick: f.tick + 1,
                   }));
                   setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
@@ -204,6 +245,17 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
               });
             } else if (e.kind === 'drain' || e.kind === 'regen') {
               setView((v) => ({ ...v, bossHp: Math.min(cur.boss.maxHp, v.bossHp + (e.heal ?? 0)) }));
+            } else if (e.kind === 'burn') {
+              // Thiêu Đốt: boss mất máu cuối lượt.
+              setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
+              setDmg({ id: dmgSeq.current++, val: e.dmg ?? 0, side: 'boss', mult: 1, crit: false });
+            } else if (e.kind === 'fx' && e.heal) {
+              // Hút Sinh Lực: hồi máu con đang ra sân.
+              setView((v) => {
+                const hp = [...v.hp];
+                hp[v.active] = Math.min(cur.team[v.active].maxHp, hp[v.active] + (e.heal ?? 0));
+                return { ...v, hp };
+              });
             } else if (e.kind === 'swap' && e.key) {
               const idx = cur.team.findIndex((c) => c.key === e.key);
               if (idx >= 0) setView((v) => ({ ...v, active: idx }));
@@ -221,11 +273,12 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
       });
 
       // Hết lượt: đồng bộ CỨNG về state thật để hình không lệch dần theo sai số cộng-trừ.
-      const done = next.log.length * STEP;
+      const done = cursor;
       timers.current.push(
         window.setTimeout(() => {
           setView({ bossHp: next.bossHp, hp: [...next.hp], active: next.active });
           setDmg(null);
+          setCutin(null);
           setFx({ lunge: null, hit: null, guard: false, flash: null, tick: 0 });
           busyRef.current = false;
           setBusy(false);
@@ -328,6 +381,7 @@ export default function BattleArena({ onClose, team, boss, tier, seed, auraTypes
             auto={auto}
             fx={fx}
             dmg={dmg}
+            cutin={cutin}
             reward={reward}
             onAct={act}
             onToggleAuto={() => setAuto((v) => !v)}
@@ -647,6 +701,7 @@ function FightView({
   auto,
   fx,
   dmg,
+  cutin,
   reward,
   onAct,
   onToggleAuto,
@@ -661,6 +716,7 @@ function FightView({
   auto: boolean;
   fx: { lunge: 'player' | 'boss' | null; hit: 'player' | 'boss' | null; guard: boolean; flash: 'crit' | 'special' | null; tick: number };
   dmg: { id: number; val: number; side: 'boss' | 'player'; mult: number; crit: boolean } | null;
+  cutin: { id: number; name: string; type: string; monId: number; monKey: string; fx: SpecialFx | null } | null;
   reward: { candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null;
   onAct: (a: LiveAction) => void;
   onToggleAuto: () => void;
@@ -675,6 +731,7 @@ function FightView({
   // Chiêu SẼ dùng ở lượt này (khớp rollDamage) — hiện ngay trên nút Đánh cho sinh động.
   const myMove = pickMove(me, bossNow.types);
   const mySig = signatureMove(me);
+  const myFx = specialFxOf(me); // hiệu ứng riêng theo hệ chiêu tủ — mỗi con một kiểu bung
 
   return (
     <>
@@ -703,6 +760,8 @@ function FightView({
       </header>
 
       <div className="relative grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Cut-in tuyệt chiêu kiểu phim: tối màn, tia sáng theo hệ, sprite + tên chiêu lao vào. */}
+        {cutin && <CutIn key={cutin.id} cutin={cutin} shiny={shinyOf(cutin.monKey)} />}
         {/* Chớp toàn màn: trắng đỏ khi CHÍ MẠNG, tím khi TUYỆT CHIÊU — đòn to phải rung màn. */}
         {fx.flash && (
           <div
@@ -865,8 +924,9 @@ function FightView({
             <CmdBtn
               k="6"
               label={`🌟 ${mySig?.name ?? 'Tuyệt chiêu'} ${Math.min(st.energy[st.active] ?? 0, SPECIAL_ENERGY)}/${SPECIAL_ENERGY}`}
-              hint={`tuyệt chiêu ×${SPECIAL_MUL} · xuyên phòng thủ · +Áp Chế`}
+              hint={myFx ? `${SPECIAL_FX_VI[myFx].label} · ${SPECIAL_FX_VI[myFx].hint}` : `tuyệt chiêu ×${SPECIAL_MUL} · xuyên phòng thủ`}
               tone="violet"
+              pulse={!busy && canAct(st, { kind: 'special' })}
               disabled={busy || !canAct(st, { kind: 'special' })}
               onClick={() => onAct({ kind: 'special' })}
             />
@@ -1103,6 +1163,8 @@ const LOG_TONE: Record<LiveEvent['kind'], string> = {
   phase: 'text-ink border-line',
   regen: 'text-[#C084FC] border-[#C084FC]/40',
   shatter: 'text-red border-red/50',
+  burn: 'text-[#FB923C] border-[#FB923C]/50',
+  fx: 'text-[#E879F9] border-[#E879F9]/40',
 };
 
 function LogPanel({ journal }: { journal: LiveEvent[] }) {
@@ -1140,6 +1202,7 @@ function CmdBtn({
   label,
   hint,
   tone,
+  pulse,
   disabled,
   onClick,
 }: {
@@ -1147,6 +1210,7 @@ function CmdBtn({
   label: string;
   hint: string;
   tone: CmdTone;
+  pulse?: boolean; // nộ đầy -> nút thở sáng, không thể không thấy
   disabled?: boolean;
   onClick: () => void;
 }) {
@@ -1165,7 +1229,8 @@ function CmdBtn({
       disabled={disabled}
       className={
         'grid min-w-28 gap-0.5 rounded-ctl border-[1.5px] px-4 py-2.5 text-left transition-all active:translate-y-px disabled:cursor-not-allowed disabled:opacity-35 ' +
-        skin[tone]
+        skin[tone] +
+        (pulse ? ' anim-ready' : '')
       }
     >
       <span className="flex items-center gap-2">
@@ -1176,6 +1241,48 @@ function CmdBtn({
       </span>
       <span className="text-[11px] font-semibold opacity-70">{hint}</span>
     </button>
+  );
+}
+
+// ===== Cut-in tuyệt chiêu — khung hình kiểu anime =====
+// Tối màn + tia sáng xoay MÀU THEO HỆ chiêu + sprite lao vào + tên chiêu giáng xuống.
+// Chạy CUTIN_MS rồi tự nhường chỗ cho cú đánh (xem lịch phát trong act()).
+function CutIn({ cutin, shiny }: { cutin: { name: string; type: string; monId: number; fx: SpecialFx | null }; shiny: boolean }) {
+  const color = typeColor(cutin.type);
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
+      {/* Màn tối + quầng màu hệ */}
+      <div className="anim-fade absolute inset-0" style={{ background: `radial-gradient(circle, ${color}33 0%, #05070ECC 70%)` }} />
+      {/* Tia sáng xoay quanh tâm */}
+      <div
+        className="anim-cutin-rays absolute inset-[-40%]"
+        style={{
+          background: `repeating-conic-gradient(${color}44 0deg 9deg, transparent 9deg 24deg)`,
+          maskImage: 'radial-gradient(circle, black 0%, transparent 68%)',
+          WebkitMaskImage: 'radial-gradient(circle, black 0%, transparent 68%)',
+        }}
+      />
+      <div className="absolute inset-0 grid place-content-center justify-items-center gap-3">
+        <span className="anim-cutin-mon relative">
+          <span className="absolute inset-0 m-auto size-40 rounded-full blur-2xl" style={{ background: color + '88' }} />
+          <CreatureImage formId={cutin.monId} shiny={shiny} size={190} className="relative drop-shadow-2xl" />
+        </span>
+        <span
+          className="anim-cutin-name px-4 text-center text-[34px] leading-tight font-black tracking-tight text-white uppercase"
+          style={{ textShadow: `0 0 24px ${color}, 0 3px 0 #000` }}
+        >
+          {cutin.name}
+        </span>
+        {cutin.fx && (
+          <span
+            className="anim-cutin-name rounded-pill border-[1.5px] px-3 py-1 text-[12.5px] font-black"
+            style={{ borderColor: color, color, background: '#05070EAA' }}
+          >
+            {SPECIAL_FX_VI[cutin.fx].label} — {SPECIAL_FX_VI[cutin.fx].hint}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

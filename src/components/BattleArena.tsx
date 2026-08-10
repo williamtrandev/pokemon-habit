@@ -11,7 +11,7 @@ import {
   LiveState, LiveAction, LiveEvent, BossIntent, INTENT_VI,
   startLive, stepLive, canAct, autoAction, bossAtPhase,
   MAX_LINEUP, STAGGER_MAX, CHARGE_MUL, BLOCK_TAKEN, BERRY_HEAL, BERRY_COUNT, matchupOf,
-  SPECIAL_ENERGY, SPECIAL_MUL,
+  SPECIAL_ENERGY, SPECIAL_MUL, SPECIAL_FX_VI, SpecialFx, specialFxOf,
 } from '../battleLive';
 import { HeldItem, RARITY } from '../items';
 import ItemSprite from './ItemSprite';
@@ -43,6 +43,7 @@ interface Props {
 const STEP = 620;    // ms mỗi mẩu sự kiện trong một lượt
 const HIT = 200;     // ms từ lúc lao tới lúc trúng đòn
 const AUTO_GAP = 260; // nghỉ giữa hai lượt khi bật Tự đánh
+const CUTIN_MS = 1100; // màn cut-in tuyệt chiêu kiểu phim, chạy TRƯỚC cú đánh
 const SELECT_PREVIEW = 12; // số con mở sẵn ở màn chọn (đã xếp con đáng mang lên đầu)
 
 const hpColor = (r: number) => (r > 0.5 ? '#22C55E' : r > 0.2 ? '#EAB308' : '#EF4444');
@@ -102,6 +103,8 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
   const [banner, setBanner] = useState<{ text: string; tone: 'good' | 'bad' | 'info' } | null>(null);
   const [dmg, setDmg] = useState<{ id: number; val: number; side: 'boss' | 'player'; mult: number; crit: boolean } | null>(null);
   const [reward, setReward] = useState<{ candy: number; egg: boolean; item: HeldItem | null; already: boolean } | null>(null);
+  // Cut-in tuyệt chiêu: overlay kiểu phim chạy trước cú đánh (xem CutIn phía dưới).
+  const [cutin, setCutin] = useState<{ id: number; name: string; type: string; monId: number; shiny: boolean; fx: SpecialFx | null } | null>(null);
 
   const autoRef = useRef(auto);
   autoRef.current = auto;
@@ -187,14 +190,40 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
         setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
         setBanner(e.crit ? { text: 'Chí mạng! 💥', tone: 'good' } : (e.mult ?? 1) >= 2 ? { text: 'Hiệu quả tuyệt vời!', tone: 'good' } : (e.mult ?? 1) === 0 ? { text: 'Vô hiệu!', tone: 'bad' } : null);
         break;
-      case 'special':
+      case 'special': {
+        // 1) Cut-in kiểu phim trước — trận dừng lại nhìn con này toả sáng.
         feedbackEvolve();
-        lunge(playerLunge); shake(bossShake);
-        flash('#A855F7');
-        setDmg({ id, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
-        setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
-        setBanner({ text: e.move ? `🌟 ${e.move}!` : 'TUYỆT CHIÊU! 🌟', tone: 'good' });
+        const monS = s.team.find((c) => c.key === e.key);
+        setCutin({
+          id, name: e.move ?? 'TUYỆT CHIÊU', type: e.moveType ?? 'normal',
+          monId: monS?.id ?? 0, shiny: teamMap.get(e.key ?? '')?.shiny ?? false, fx: e.fx ?? null,
+        });
+        // 2) Hết cut-in mới ra đòn.
+        timers.current.push(setTimeout(() => {
+          setCutin(null);
+          lunge(playerLunge); shake(bossShake);
+          flash('#A855F7');
+          setDmg({ id, val: e.dmg ?? 0, side: 'boss', mult: e.mult ?? 1, crit: !!e.crit });
+          setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
+          setBanner({ text: e.move ? `🌟 ${e.move}!` : 'TUYỆT CHIÊU! 🌟', tone: 'good' });
+        }, CUTIN_MS));
         break;
+      }
+      case 'burn':
+        // Thiêu Đốt: boss mất máu cuối lượt.
+        setView((v) => ({ ...v, bossHp: Math.max(0, v.bossHp - (e.dmg ?? 0)) }));
+        setDmg({ id, val: e.dmg ?? 0, side: 'boss', mult: 1, crit: false });
+        setBanner({ text: e.text, tone: 'good' });
+        break;
+      case 'fx': {
+        // Hiệu ứng phụ của tuyệt chiêu: hồi máu (Hút Sinh Lực) hoặc chỉ banner.
+        if (e.heal) {
+          const j = idxOfKey(s, e.key);
+          if (j >= 0) setView((v) => ({ ...v, hp: v.hp.map((h, x) => (x === j ? h + (e.heal ?? 0) : h)) }));
+        }
+        setBanner({ text: e.text, tone: 'good' });
+        break;
+      }
       case 'boss-hit': {
         feedbackTap();
         lunge(bossLunge); shake(playerShake);
@@ -262,17 +291,25 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
     const next = stepLive(st, action);
     setSt(next);
     setBusy(true);
+    // Lịch phát CO GIÃN: sự kiện thường chiếm STEP, tuyệt chiêu chiếm thêm CUTIN_MS cho cut-in.
+    let cursor = 0;
+    const offsets = next.log.map((e) => {
+      const at = cursor;
+      cursor += e.kind === 'special' ? STEP + CUTIN_MS : STEP;
+      return at;
+    });
     next.log.forEach((e, i) => {
-      timers.current.push(setTimeout(() => applyEvent(e, next), i * STEP));
+      timers.current.push(setTimeout(() => applyEvent(e, next), offsets[i]));
     });
     timers.current.push(setTimeout(() => {
       // Đồng bộ lại theo state THẬT để thanh máu không lệch dần sau nhiều lượt.
       setView({ bossHp: next.bossHp, hp: next.hp, active: next.active });
       setBanner(null);
+      setCutin(null);
       setBusy(false);
       if (next.over) finish(next);
       else if (autoRef.current) timers.current.push(setTimeout(() => actRef.current(autoAction(next)), AUTO_GAP));
-    }, Math.max(1, next.log.length) * STEP));
+    }, Math.max(STEP, cursor)));
   };
   // Tự đánh gọi lại chính nó qua ref -> không cần đưa `act` vào deps.
   const actRef = useRef(act);
@@ -401,6 +438,7 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
                   />
                   {/* Tuyệt chiêu: nút RIÊNG full bề rộng — nộ đầy mới sáng, kèm thanh nộ. */}
                   <SpecialBtn energy={st.energy[st.active] ?? 0} moveName={me ? signatureMove(me)?.name : undefined}
+                    fx={me ? specialFxOf(me) : null}
                     disabled={busy || !canAct(st, { kind: 'special' })}
                     onPress={() => act({ kind: 'special' })} styles={styles} />
                   <View style={styles.cmdGrid}>
@@ -429,11 +467,57 @@ export default function BattleArena({ visible, onClose, team, boss, tier, seed, 
               )}
             </View>
 
+            {/* Cut-in tuyệt chiêu kiểu phim — đè lên cả sân đấu lẫn bảng lệnh. */}
+            {cutin && <CutInView key={cutin.id} cutin={cutin} />}
+
             {screen === 'win' && <Confetti />}
           </>
         )}
       </View>
     </Modal>
+  );
+}
+
+// ===== Cut-in tuyệt chiêu — khung hình kiểu anime =====
+// Tối màn + quầng MÀU THEO HỆ chiêu + sprite lao vào + tên chiêu giáng xuống.
+// Chạy CUTIN_MS rồi tự nhường chỗ cho cú đánh (xem lịch phát trong act()).
+function CutInView({ cutin }: { cutin: { name: string; type: string; monId: number; shiny: boolean; fx: SpecialFx | null } }) {
+  const W = Dimensions.get('window').width;
+  const slide = useRef(new Animated.Value(0)).current;
+  const slam = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(slide, { toValue: 1, friction: 7, tension: 70, useNativeDriver: true }).start();
+    Animated.spring(slam, { toValue: 1, friction: 6, tension: 90, delay: 150, useNativeDriver: true }).start();
+  }, []);
+  const color = typeColor(cutin.type);
+  const tx = slide.interpolate({ inputRange: [0, 1], outputRange: [-W * 0.85, 0] });
+  const scale = slam.interpolate({ inputRange: [0, 1], outputRange: [2.3, 1] });
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: '#05070ED9', gap: 12 }]}>
+      <View style={{ position: 'absolute', width: 300, height: 300, borderRadius: 150, backgroundColor: color + '3D' }} />
+      <View style={{ position: 'absolute', width: 190, height: 190, borderRadius: 95, backgroundColor: color + '55' }} />
+      <Animated.View style={{ transform: [{ translateX: tx }] }}>
+        <CreatureImage formId={cutin.monId} shiny={cutin.shiny} size={175} />
+      </Animated.View>
+      <Animated.Text
+        numberOfLines={2}
+        style={{
+          transform: [{ scale }], opacity: slam, maxWidth: '86%',
+          color: '#fff', fontSize: 30, fontWeight: '900', textAlign: 'center', textTransform: 'uppercase',
+          textShadowColor: color, textShadowRadius: 18, textShadowOffset: { width: 0, height: 0 },
+        }}
+      >
+        {cutin.name}
+      </Animated.Text>
+      {cutin.fx && (
+        <Animated.View style={{ opacity: slam, borderWidth: 1.5, borderColor: color, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#05070EAA' }}>
+          <Text style={{ color, fontSize: 12.5, fontWeight: '900' }}>
+            {SPECIAL_FX_VI[cutin.fx].label} — {SPECIAL_FX_VI[cutin.fx].hint}
+          </Text>
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
@@ -530,11 +614,25 @@ function BenchRow({ st, view, teamMap, bossTypes, open, onPick, styles }: {
 
 // Nút Tuyệt chiêu + thanh NỘ. Nộ tích khi ra đòn / trúng đòn (xem battleLive.ts) — hiển thị
 // ngay trên nút để người chơi thấy mình đang "sắp có gì đó" kể cả lúc bị ép phòng thủ.
-function SpecialBtn({ energy, moveName, disabled, onPress, styles }: {
-  energy: number; moveName?: string; disabled: boolean; onPress: () => void; styles: any;
+function SpecialBtn({ energy, moveName, fx, disabled, onPress, styles }: {
+  energy: number; moveName?: string; fx: SpecialFx | null; disabled: boolean; onPress: () => void; styles: any;
 }) {
   const ready = energy >= SPECIAL_ENERGY;
+  // Nộ đầy -> nút "thở" — không thể không thấy. Loop dừng khi hết ready.
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!ready || disabled) { pulse.setValue(0); return; }
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 550, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 550, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [ready, disabled]);
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.025] });
+
   return (
+    <Animated.View style={{ transform: [{ scale }] }}>
     <Pressable onPress={onPress} disabled={disabled}
       style={[styles.special, ready ? styles.specialReady : styles.specialDim, disabled && ready && styles.btnOff]}>
       <Text style={styles.cmdIcon}>🌟</Text>
@@ -542,7 +640,9 @@ function SpecialBtn({ energy, moveName, disabled, onPress, styles }: {
         <Text style={styles.cmdLabel} numberOfLines={1}>
           {moveName ?? 'Tuyệt chiêu'} {ready ? '— SẴN SÀNG!' : ''}
         </Text>
-        <Text style={styles.cmdSub} numberOfLines={1}>tuyệt chiêu ×{SPECIAL_MUL} · xuyên phòng thủ · +Áp Chế</Text>
+        <Text style={styles.cmdSub} numberOfLines={1}>
+          {fx ? `${SPECIAL_FX_VI[fx].label} · ${SPECIAL_FX_VI[fx].hint}` : `tuyệt chiêu ×${SPECIAL_MUL} · xuyên phòng thủ`}
+        </Text>
       </View>
       <View style={styles.energyRow}>
         {Array.from({ length: SPECIAL_ENERGY }, (_, i) => (
@@ -550,6 +650,7 @@ function SpecialBtn({ energy, moveName, disabled, onPress, styles }: {
         ))}
       </View>
     </Pressable>
+    </Animated.View>
   );
 }
 
