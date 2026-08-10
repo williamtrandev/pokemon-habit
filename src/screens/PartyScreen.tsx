@@ -440,6 +440,8 @@ export default function PartyScreen() {
               placeholderTextColor={colors.textDim}
               style={styles.searchInput}
               autoCorrect={false}
+              // Chữ hệ thống phóng to (accessibility) làm placeholder tràn/giãn — kẹp trần.
+              maxFontSizeMultiplier={1.2}
               accessibilityLabel="Tìm Pokémon theo tên"
             />
             {q.length > 0 && (
@@ -913,12 +915,16 @@ const makeStyles = (colors: Colors) =>
     // Tìm / lọc / xếp
     searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.cardAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
     searchIcon: { fontSize: 13 },
-    searchInput: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '600', paddingVertical: Platform.OS === 'ios' ? 10 : 6 },
+    // letterSpacing ép về 0 + weight 500: iOS với font đậm/scale lớn hay render placeholder
+    // giãn chữ rất xấu ("T ì m  t h e o…").
+    searchInput: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '500', letterSpacing: 0, paddingVertical: Platform.OS === 'ios' ? 10 : 6 },
     searchClear: { color: colors.textDim, fontSize: 15, fontWeight: '900', paddingHorizontal: 2 },
-    chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', marginBottom: spacing.sm },
-    chip: { backgroundColor: colors.cardAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 5 },
+    // Gap/padding tính để 5 chip lọc và 4 chip xếp mỗi nhóm VỪA MỘT HÀNG trên máy 390pt —
+    // bản cũ (pad 12, gap 8) tràn đúng 1 chip mỗi hàng, thành 4 tầng chip rất rối.
+    chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: spacing.sm },
+    chip: { backgroundColor: colors.cardAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 9, paddingVertical: 5 },
     chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-    chipText: { color: colors.textDim, fontSize: 12, fontWeight: '800' },
+    chipText: { color: colors.textDim, fontSize: 11.5, fontWeight: '800' },
     chipTextOn: { color: '#fff' },
     sortLabel: { color: colors.textDim, fontSize: 11.5, fontWeight: '800', marginRight: 2 },
     countLine: { color: colors.textDim, fontSize: 11.5, fontWeight: '700', marginBottom: spacing.sm },

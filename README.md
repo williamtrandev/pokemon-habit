@@ -1,90 +1,87 @@
-# 🥚 Rồng Thói Quen (Habit Pet)
+# 🥚 PokéHabit — nuôi Pokémon bằng mục tiêu
 
-App nhắc nhở & xây dựng thói quen theo cơ chế **nuôi sinh vật tiến hoá** (Tamagotchi + habit tracker + Pokédex). Chạy được cả **Android** và **iOS** từ một codebase (Expo / React Native).
+Habit tracker theo cơ chế **game nuôi + đấu boss** (Tamagotchi × habit tracker × Pokédex). Một codebase chạy **Android + iOS** (Expo / React Native) và **web PWA** (Vite, dùng chung toàn bộ logic trong `src/`).
 
-> ⚠️ **CHỈ DÙNG CÁ NHÂN / HỌC TẬP.** Bản này nạp **sprite Pokémon từ PokéAPI khi chạy** (không nhúng vào app). Pokémon là tài sản có bản quyền của Nintendo/The Pokémon Company — **KHÔNG được phát hành lên App Store/Google Play hay dùng thương mại**. Muốn phát hành: thay `spriteSources`/`fetchRandomLine` trong `src/species.ts` bằng bộ ảnh có giấy phép mở hoặc nhân vật tự vẽ.
+🌐 **Bản web:** https://pokemon-habit.vercel.app — mở trên điện thoại bấm "⬇ Cài app" là chạy như app thật (offline được).
 
-## Ý tưởng cốt lõi
+> ⚠️ **CHỈ DÙNG CÁ NHÂN / HỌC TẬP.** App nạp **sprite Pokémon từ PokéAPI khi chạy** (không nhúng vào app). Pokémon là tài sản có bản quyền của Nintendo/The Pokémon Company — **KHÔNG được phát hành lên App Store/Google Play hay dùng thương mại**. Muốn phát hành: thay `spriteSources`/`fetchRandomLine` trong `src/species.ts` bằng bộ ảnh có giấy phép mở hoặc nhân vật tự vẽ.
 
-- Mỗi **mục tiêu** bạn đặt ra sẽ nở ra **một quả trứng của loài khác nhau** (không trùng nhau).
-- **Hoàn thành mỗi ngày** → sinh vật tăng **thể trạng** (❤️) và **XP** (✨) → **tiến hoá**.
-- **Bỏ bê** → sinh vật **yếu dần rồi gục ngã** (mờ đi, rũ xuống, đổi biểu cảm 😄→🙂→😕→😣→💀). Hoàn thành trở lại sẽ **hồi sinh** nó.
-- Mỗi loài có **cây tiến hoá rẽ nhánh** kiểu Pokémon: dạng cuối phụ thuộc độ **bền bỉ** (chuỗi ngày).
-- Có **âm thanh + rung** khi hoàn thành và khi tiến hoá.
+## Vòng chơi
 
-### Vòng đời & thể trạng
+1. **Hoàn thành mục tiêu mỗi ngày** → nhận **kẹo 🍬** + tích điểm **nở trứng** 🥚.
+2. Trứng nở ra **Pokémon ngẫu nhiên trong ~1025 loài** (dòng tiến hoá thật từ PokéAPI). Chuỗi ngày dài → tỉ lệ **Shiny ✨** cao, mốc chuỗi 7/30/100… tặng trứng hiếm (shiny đảm bảo).
+3. **Cho ăn kẹo** → thân thiết tăng → **tiến hoá** dọc dòng thật, chạm trần thì mở **Mega/dạng đặc biệt**.
+4. **Đấu đạo trường**: boss xuất hiện ngẫu nhiên mỗi giờ, đánh **theo lượt** — boss báo trước ý đồ, 3 pha đổi hệ. Thắng nhận kẹo, trứng, và **trang bị rơi**.
+5. Bỏ bê thì thể trạng tụt dần rồi gục — hoàn thành trở lại để hồi sinh.
 
-| Thể trạng | Trạng thái | Biểu hiện |
-|---|---|---|
-| 80–100 | 😄 Khỏe mạnh | tươi tắn, hào quang màu loài |
-| 50–79 | 🙂 Hơi mệt | mờ nhẹ, badge 💤 |
-| 20–49 | 😕 Suy yếu | xám, rũ xuống, badge 🤒 |
-| 1–19 | 😣 Nguy kịch | mờ hẳn, nghiêng, badge 🥀 |
-| 0 | 💀 Đã gục | ngất — hoàn thành để hồi sinh (XP giữ nguyên) |
+## Cơ chế sức mạnh
 
-### Hình thái & tiến hoá
-
-- Mỗi mục tiêu nở ra **một Pokémon NGẪU NHIÊN trong toàn bộ ~1025 loài** — lấy dòng tiến hoá thật qua endpoint `evolution-chain` của PokéAPI (`fetchRandomLine`).
-- Ảnh dùng **artwork chính thức ĐỘ PHÂN GIẢI CAO** (nét căng), app tự thêm chuyển động **bồng bềnh + thở + đung đưa** (CreatureView) — xem `spriteSources`. (PokéAPI không có nguồn vừa nét cao vừa động; nếu thích ảnh tự nhúc nhích thì đổi `spriteSources` ưu tiên `showdown/{id}.gif`.)
-- Mỗi con: **Trứng 🥚 → non → thiếu niên → dạng cuối** (ánh xạ theo độ dài dòng tiến hoá; con không tiến hoá thì lớn tại chỗ).
-- Mốc XP: `[0, 40, 120, 300]` (chỉnh trong `src/species.ts`).
-- Nhánh cuối: giữ **kỷ lục chuỗi ngày ≥ 10** → **bản Shiny ✨**; nếu không → bản thường.
-- Thể trạng ảnh hưởng hiển thị: khoẻ (rõ nét + hào quang) → yếu (mờ, xám, nghiêng, badge 🤒) → **gục** (mờ hẳn, badge 💀).
-
-### Luật cân bằng (chỉnh trong `src/gameLogic.ts`)
-
-- Mỗi lần hoàn thành: **+12 XP** (+ thưởng theo chuỗi ngày, tối đa +8), **+12 thể trạng**.
-- Mỗi ngày bỏ lỡ: **−18 thể trạng** (mỗi sinh vật độc lập).
-- Hồi sinh sau khi gục: về **40 thể trạng**.
+| Cơ chế | Tóm tắt |
+|---|---|
+| **Chỉ số thật** | BST từ PokéAPI quyết định máu/công/thủ/tốc trong trận (`src/battle.ts`) |
+| **Chiêu thức thật** | Mỗi con mang 4 chiêu từ PokéAPI; đòn đánh tự chọn chiêu tốt nhất theo khắc hệ × STAB × lực chiêu (`pickMove`) |
+| **Tuyệt chiêu** | Thanh NỘ tích khi ra/trúng đòn; đầy là bung chiêu tủ ×2.4 xuyên phòng thủ, kèm **cut-in kiểu anime** và **hiệu ứng theo hệ**: Thiêu Đốt / Hút Sinh Lực / Chấn Động / Kết Giáp / Xuyên Phá (`src/battleLive.ts`) |
+| **Trang bị** | 12 món, 4 bậc hiếm có màu (Thường→Huyền thoại), rơi từ boss theo độ khó, đeo riêng từng con — buff KHÔNG làm boss scale theo (`src/items.ts`) |
+| **Shiny** | Mạnh hơn dạng thường: MỌI chỉ số ×1.1 |
+| **Sức mạnh bầy** | Tổng BST cả bầy → mốc thưởng vô hạn + danh hiệu (Tân binh → Truyền kỳ ★n) |
+| **Boss scale** | Boss mạnh lên theo đội hình mang đi (`lineupScale`) — bầy lớn tới đâu trận vẫn đáng đánh |
 
 ## Chạy thử
 
 ```bash
-cd pokemon-habit
 npm install
 
-# Trên điện thoại thật (dễ nhất, có đủ âm thanh + rung):
-npm start          # cài "Expo Go" trên điện thoại rồi quét mã QR
+# App native:
+npm start          # Expo Go quét QR (đủ âm thanh + rung)
+npm run ios        # máy ảo iOS (cần Xcode)
+npm run android    # emulator Android
 
-# Hoặc chạy trên máy ảo:
-npm run ios        # cần macOS + Xcode
-npm run android    # cần Android Studio / emulator
-npm run web        # xem nhanh trên trình duyệt (âm thanh/rung bị bỏ qua)
+# Web (PWA, dùng chung logic src/):
+npm --prefix web install
+npm --prefix web run dev    # http://localhost:5173
+```
+
+Test: `npx vitest run` (lõi game thuần) · E2E iOS: Maestro (xem `docs/TESTING.md`).
+
+## Đồng bộ đám mây (tuỳ chọn)
+
+Local-first — không cấu hình gì vẫn chơi bình thường. Muốn đồng bộ nhiều thiết bị: tạo project Supabase, điền `EXPO_PUBLIC_SUPABASE_URL` + `EXPO_PUBLIC_SUPABASE_ANON_KEY` vào `.env` (xem `docs/supabase-setup.md`). Lưu ý trong Dashboard:
+
+- **Authentication → URL Configuration**: đặt **Site URL** = domain web thật (mặc định `localhost:3000` làm link trong email sai).
+- **Authentication → Emails**: app đăng nhập bằng **mã OTP 6 số**, nên sửa template Magic Link/Confirm signup hiển thị `{{ .Token }}` thay vì `{{ .ConfirmationURL }}`.
+- Bật **Anonymous sign-ins** (đồng bộ ẩn danh mặc định) + **Email provider** (đăng nhập chung tiến độ giữa các máy).
+
+## Deploy web
+
+```bash
+npx vercel deploy --prod --yes   # cấu hình sẵn trong vercel.json (build từ web/, output web/dist)
 ```
 
 ## Cấu trúc
 
 ```
-App.tsx                      Điều hướng tab + overlay tiến hoá / hồi sinh
-assets/sfx/                  Âm thanh (complete.wav, evolve.wav — tổng hợp sẵn)
-src/
-  types.ts                   Kiểu dữ liệu (Creature gắn trong Habit) + trạng thái thể trạng
-  species.ts                 fetchRandomLine (ngẫu nhiên toàn bộ Pokémon) + URL sprite động + mốc XP + shiny
-  date.ts                    Tiện ích ngày tháng
-  storage.ts                 Lưu/nạp AsyncStorage (KEY v2)
-  gameLogic.ts               XP, thể trạng, gục/hồi sinh, chuỗi ngày, rẽ nhánh
-  notifications.ts           Nhắc nhở cục bộ
-  feedback.ts                Âm thanh (expo-audio) + rung (expo-haptics)
-  AppContext.tsx             State toàn cục + hành động (gán loài chưa trùng khi tạo)
-  theme.ts                   Màu sắc, khoảng cách
-  components/
-    CreatureImage.tsx        Sprite động Pokémon (expo-image, GIF + dự phòng); bậc 0 = trứng emoji
-    CreatureView.tsx         Bọc CreatureImage + animation (nhún/thở, hạt) + trạng thái thể trạng
-    CreatureCard, CreatureDetail, HabitEditor, ProgressBar
-  screens/                   HomeScreen (đàn sinh vật), HabitsScreen (mục tiêu), HistoryScreen (bộ sưu tập)
+App.tsx                      Vỏ app native: tab + overlay
+src/                         LÕI DÙNG CHUNG app + web
+  types.ts                   AppData, PartyMon, Habit…
+  gameLogic.ts               Chuỗi ngày, thể trạng, decay
+  collection.ts              Kẹo, trứng, nở, thân thiết, tiến hoá, shiny
+  species.ts                 PokéAPI: dòng tiến hoá, sprite, chỉ số, chiêu thức
+  battle.ts                  Khắc hệ, combatant, chiêu (pickMove/STAB), boss/độ khó/mốc bầy
+  battleLive.ts              Trận THEO LƯỢT: ý đồ boss, Áp Chế, tuyệt chiêu + hiệu ứng hệ
+  items.ts                   Trang bị: bậc hiếm, tỉ lệ rơi, buff
+  AppContext.tsx             State + hành động + đồng bộ Supabase (local-first)
+  lib/                       supabase, auth (ẩn danh + OTP email), sync last-write-wins
+  components/                BattleArena, CreatureImage, ItemSprite…
+  screens/                   Home (hôm nay), Party (bầy + đấu boss), Habits, History (Pokédex)
+web/                         Bản web PWA (Vite + Tailwind), import thẳng ../src qua alias @app
+  src/ui/                    UI vẽ lại bằng DOM; logic không copy dòng nào
+docs/                        TESTING.md, CLOUD_SYNC.md, supabase-setup.md
 ```
 
 ## Build ra file cài đặt (.apk / .ipa)
 
 ```bash
 npm install -g eas-cli
-eas build --platform android   # ra .apk/.aab
-eas build --platform ios       # ra .ipa (cần tài khoản Apple Developer)
+eas build --platform android   # .apk/.aab
+eas build --platform ios       # .ipa (cần tài khoản Apple Developer)
 ```
-
-## Ý tưởng mở rộng
-
-- Thêm nhiều loài / dạng tiến hoá hơn (chỉ cần bổ sung vào `src/species.ts`).
-- Thay emoji bằng nhân vật vẽ tay / SVG để phần biến hoá đặc sắc hơn.
-- Cửa hàng phụ kiện trang trí cho sinh vật bằng XP.
-- Đồng bộ đám mây, đăng nhập.
