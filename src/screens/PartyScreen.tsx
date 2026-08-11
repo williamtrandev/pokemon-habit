@@ -44,11 +44,12 @@ const PAGE = 25;
 type SortKey = 'power' | 'affection' | 'need' | 'new';
 type FilterKey = 'all' | 'ready' | 'growing' | 'max' | 'shiny';
 
+// Nhãn NGẮN có chủ đích: thêm chữ là nhóm chip tràn xuống hàng thứ ba (đo trên máy 402pt).
 const SORTS: { key: SortKey; label: string }[] = [
   { key: 'power', label: 'Lực chiến' },
   { key: 'affection', label: 'Thân thiết' },
-  { key: 'need', label: 'Gần tiến hoá' },
-  { key: 'new', label: 'Mới nhất' },
+  { key: 'need', label: 'Sắp hoá' },
+  { key: 'new', label: 'Mới' },
 ];
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'Tất cả' },
