@@ -114,7 +114,7 @@ function growth(mon: PartyMon, megas: MegaForm[] | undefined) {
 }
 
 export default function PartyScreen() {
-  const { data, feedPokemon, reportBattleWin, claimTeamPower, buyEgg, hatchEgg } = useApp();
+  const { data, feedPokemon, feedMany, reportBattleWin, claimTeamPower, buyEgg, hatchEgg } = useApp();
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
 
@@ -177,6 +177,23 @@ export default function PartyScreen() {
     const g = growth(m, megasOf(m));
     return g.need != null && candy >= g.need;
   }).length;
+
+  // ===== Nuôi HÀNG LOẠT =====
+  // Bầy trăm con thì mở từng bảng bấm từng nút là không xuể. Một chạm: đổ đúng số kẹo cần
+  // cho từng con, RẺ NHẤT TRƯỚC để số con lên dạng nhiều nhất, hết kẹo thì dừng.
+  const [feedNote, setFeedNote] = useState<string | null>(null);
+  const feedAllReady = () => {
+    const plan = party
+      .map((m) => ({ m, need: growth(m, megasOf(m)).need }))
+      .filter((x): x is { m: PartyMon; need: number } => x.need != null)
+      .sort((a, b) => a.need - b.need)
+      .map((x) => ({ key: x.m.key, amount: x.need }));
+    if (!plan.length) return;
+    const r = feedMany(plan);
+    if (!r.fed) return;
+    setFeedNote(`🍬 ${r.spent} kẹo → ${r.fed} con được nuôi · ${r.evolved} con lên dạng`);
+    setTimeout(() => setFeedNote(null), 4000);
+  };
 
   // ===== Tìm / lọc / xếp bầy =====
   // Shiny +10% chỉ số (xem shinyStats trong battle.ts) — BST hiển thị/xếp hạng phải khớp trận đấu.
@@ -424,11 +441,12 @@ export default function PartyScreen() {
           <View style={styles.rosterHead}>
             <Text style={styles.rosterTitle}>Chạm một con để nuôi</Text>
             {readyCount > 0 && (
-              <View style={styles.readyPill}>
-                <Text style={styles.readyPillText}>{readyCount} con đủ kẹo tiến hoá</Text>
-              </View>
+              <Pressable onPress={feedAllReady} style={styles.readyPill}>
+                <Text style={styles.readyPillText}>⚡ Nuôi hết {readyCount} con đủ kẹo</Text>
+              </Pressable>
             )}
           </View>
+          {feedNote ? <Text style={styles.feedNote}>{feedNote}</Text> : null}
 
           {/* Tìm theo tên — gõ "swamp" là ra Mega Swampert, khỏi cuộn cả bầy. */}
           <View style={styles.searchRow}>
@@ -948,8 +966,10 @@ const makeStyles = (colors: Colors) =>
     // Lưới tự xuống dòng (không cuộn ngang). marginBottom chừa chỗ cho tag thò ra dưới ô.
     rosterHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginBottom: spacing.sm },
     rosterTitle: { color: colors.text, fontSize: 13, fontWeight: '800' },
-    readyPill: { backgroundColor: colors.green + '26', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 },
+    // Là NÚT (nuôi hàng loạt) chứ không còn là nhãn -> viền rõ + vùng chạm cao hơn.
+    readyPill: { backgroundColor: colors.green + '26', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.green + '77', paddingHorizontal: 10, paddingVertical: 6 },
     readyPillText: { color: colors.green, fontSize: 11, fontWeight: '800' },
+    feedNote: { color: colors.green, fontSize: 11.5, fontWeight: '800', marginBottom: spacing.sm },
     roster: { flexDirection: 'row', flexWrap: 'wrap', gap: ROSTER_GAP },
     // Tìm / lọc / xếp
     searchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.cardAlt, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, marginBottom: spacing.sm },

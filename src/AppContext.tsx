@@ -38,6 +38,8 @@ interface AppContextValue {
   toggleToday: (id: string) => void;
   // amount = số kẹo muốn đổ MỘT LẦN (mặc định FEED_CHUNK). Dùng cho "ăn no tới lên dạng".
   feedPokemon: (key: string, amount?: number) => void;
+  // Cho ăn NHIỀU con trong một lần cập nhật (nút "cho ăn tất cả con đủ kẹo").
+  feedMany: (plan: { key: string; amount: number }[]) => { fed: number; evolved: number; spent: number };
   pickMega: (key: string, formId: number, formName: string) => void;
   hatchEgg: () => void;
   // Cửa hàng: đổi kẹo lấy trứng (vào hàng chờ nở). Trả về true nếu mua được.
@@ -423,6 +425,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return gained;
   }, [touch]);
 
+  // Con vừa chạm MEGA_AFFECTION -> tra các dạng (Mega/Ash...) rồi hoá theo LỰA CHỌN người chơi.
+  // Tách riêng vì cả cho ăn một con lẫn cho ăn hàng loạt đều cần.
+  const ensureMegaForm = useCallback(async (key: string) => {
+    const mon = dataRef.current.party.find((x) => x.key === key);
+    if (!mon || mon.megaId != null) return;
+    const megas = await fetchMegas(mon.line[mon.line.length - 1].id);
+    if (!megas.length) return; // loài không có dạng đặc biệt -> thôi
+    const cur = dataRef.current.party.find((x) => x.key === key);
+    const mega = megas.find((mm) => mm.id === cur?.megaChoice) ?? megas[0]; // theo lựa chọn, mặc định [0]
+    setData((d) => {
+      const j = d.party.findIndex((x) => x.key === key);
+      if (j < 0 || d.party[j].megaId != null) return d;
+      const party2 = [...d.party];
+      party2[j] = { ...party2[j], megaId: mega.id, megaName: mega.name };
+      return touch({ ...d, party: party2, collection: recordCaught(d.collection, mega.id, party2[j].shiny, Date.now()) });
+    });
+    feedbackEvolve();
+    setHatchEvent({ ts: Date.now(), id: mega.id, shiny: mon.shiny, kind: 'evolve' });
+  }, [touch]);
+
+  // Cho ăn HÀNG LOẠT trong MỘT lần cập nhật state. Bầy trăm con mà mở từng bảng bấm từng nút
+  // thì không xuể; mà gọi feedPokemon nhiều lần trong cùng một tick cũng SAI — mỗi lần đều đọc
+  // `dataRef.current` của render cũ nên số kẹo bị tính trùng, chỉ con cuối được ghi.
+  // `plan` xếp sẵn thứ tự ưu tiên; hết kẹo tới đâu dừng tới đó.
+  const feedMany = useCallback((plan: { key: string; amount: number }[]): { fed: number; evolved: number; spent: number } => {
+    const now = Date.now();
+    const d0 = dataRef.current;
+    let budget = Math.floor(d0.candy ?? 0);
+    if (budget <= 0 || !plan.length) return { fed: 0, evolved: 0, spent: 0 };
+
+    const party = [...d0.party];
+    let collection = d0.collection;
+    let fed = 0, evolved = 0, spent = 0;
+    const megaKeys: string[] = [];
+
+    for (const step of plan) {
+      if (budget <= 0) break;
+      const idx = party.findIndex((m) => m.key === step.key);
+      if (idx < 0) continue;
+      const m = party[idx];
+      const give = Math.min(budget, Math.max(1, Math.floor(step.amount)), MEGA_AFFECTION - m.affection);
+      if (give <= 0) continue; // con này đã tối đa
+      const affection = m.affection + give;
+      const beforeIdx = Math.min(stageFromAffection(m.affection), m.line.length - 1);
+      const afterIdx = Math.min(stageFromAffection(affection), m.line.length - 1);
+      party[idx] = { ...m, affection };
+      collection = recordCaught(collection, m.line[afterIdx].id, m.shiny, now);
+      budget -= give;
+      spent += give;
+      fed += 1;
+      if (afterIdx > beforeIdx) evolved += 1;
+      if (affection >= MEGA_AFFECTION && m.megaId == null) megaKeys.push(m.key);
+    }
+    if (!fed) return { fed: 0, evolved: 0, spent: 0 };
+
+    setData(touch({ ...d0, candy: (d0.candy ?? 0) - spent, party, collection }));
+    if (evolved > 0) feedbackEvolve();
+    else feedbackComplete();
+    // Mega phải tra mạng nên chạy sau, từng con một.
+    for (const k of megaKeys) void ensureMegaForm(k);
+    return { fed, evolved, spent };
+  }, [touch, ensureMegaForm]);
+
   // Cho 1 Pokémon (RIÊNG) ăn -> đổ tối đa `amount` kẹo (mặc định FEED_CHUNK) thành thân thiết
   // (1:1). Đủ ngưỡng -> tiến hoá bậc (đổ to nhảy được NHIỀU bậc một cú — before/afterIdx đã lo);
   // tới MEGA_AFFECTION -> Mega (chỉ con này). KHÔNG ảnh hưởng con khác.
@@ -452,25 +517,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setHatchEvent({ ts: Date.now(), id: formId, shiny: m.shiny, kind: 'evolve' });
     }
 
-    // Đạt mốc đặc biệt lần đầu -> tra các dạng (Mega/Ash...) rồi hoá theo LỰA CHỌN của người chơi.
-    if (affection >= MEGA_AFFECTION && m.megaId == null) {
-      (async () => {
-        const megas = await fetchMegas(m.line[m.line.length - 1].id);
-        if (!megas.length) return; // loài không có dạng đặc biệt -> thôi
-        const cur = dataRef.current.party.find((x) => x.key === key);
-        const mega = megas.find((mm) => mm.id === cur?.megaChoice) ?? megas[0]; // theo lựa chọn, mặc định [0]
-        setData((d) => {
-          const j = d.party.findIndex((x) => x.key === key);
-          if (j < 0) return d;
-          const party2 = [...d.party];
-          party2[j] = { ...party2[j], megaId: mega.id, megaName: mega.name };
-          return touch({ ...d, party: party2, collection: recordCaught(d.collection, mega.id, party2[j].shiny, Date.now()) });
-        });
-        feedbackEvolve();
-        setHatchEvent({ ts: Date.now(), id: mega.id, shiny: m.shiny, kind: 'evolve' });
-      })();
-    }
-  }, [touch]);
+    // Đạt mốc đặc biệt lần đầu -> hoá dạng đặc biệt (tra mạng nên chạy ngầm).
+    if (affection >= MEGA_AFFECTION && m.megaId == null) void ensureMegaForm(key);
+  }, [touch, ensureMegaForm]);
 
   // Chọn dạng đặc biệt sẽ hoá (Mega/Ash/X/Y). Nếu con ĐÃ hoá rồi -> đổi dạng ngay.
   const pickMega = useCallback((key: string, formId: number, formName: string) => {
@@ -550,6 +599,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         hatchEvent,
         clearHatchEvent,
         feedPokemon,
+        feedMany,
         pickMega,
         hatchEgg,
         buyEgg,

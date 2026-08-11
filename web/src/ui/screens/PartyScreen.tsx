@@ -137,7 +137,7 @@ function searchText(mon: PartyMon): string {
 // con nào thì cột phải đổi ngay tại chỗ, không cuộn một pixel nào. Màn hẹp (< 1280px) thì
 // bảng đó thành hộp thoại — vẫn không phải cuộn.
 export default function PartyScreen() {
-  const { data, feedPokemon, reportBattleWin, claimTeamPower, buyEgg, hatchEgg } = useApp();
+  const { data, feedPokemon, feedMany, reportBattleWin, claimTeamPower, buyEgg, hatchEgg } = useApp();
   const wide = useMedia('(min-width: 1280px)');
 
   const party = useMemo(
@@ -195,6 +195,23 @@ export default function PartyScreen() {
     const g = growth(m, megasOf(m));
     return g.need != null && candy >= g.need;
   }).length;
+
+  // ===== Nuôi HÀNG LOẠT =====
+  // Bầy trăm con thì mở từng bảng bấm từng nút là không xuể. Một chạm: đổ đúng số kẹo cần
+  // cho từng con, RẺ NHẤT TRƯỚC để số con lên dạng nhiều nhất, hết kẹo thì dừng.
+  const [feedNote, setFeedNote] = useState<string | null>(null);
+  const feedAllReady = () => {
+    const plan = party
+      .map((m) => ({ m, need: growth(m, megasOf(m)).need }))
+      .filter((x): x is { m: PartyMon; need: number } => x.need != null)
+      .sort((a, b) => a.need - b.need)
+      .map((x) => ({ key: x.m.key, amount: x.need }));
+    if (!plan.length) return;
+    const r = feedMany(plan);
+    if (!r.fed) return;
+    setFeedNote(`🍬 ${r.spent} kẹo → ${r.fed} con được nuôi · ${r.evolved} con lên dạng`);
+    window.setTimeout(() => setFeedNote(null), 4000);
+  };
 
   // Shiny +10% chỉ số (shinyStats trong battle.ts) — BST hiển thị/xếp hạng phải khớp trận đấu.
   const bstOf = (m: PartyMon) => {
@@ -475,6 +492,20 @@ export default function PartyScreen() {
         ) : (
           <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
             <div>
+              {/* Nuôi hàng loạt: một chạm đổ kẹo cho mọi con còn nuôi được, rẻ nhất trước. */}
+              {readyCount > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={feedAllReady}
+                    className="rounded-pill border border-green/60 bg-green/15 px-3.5 py-2 text-[12.5px] font-extrabold text-green transition-colors hover:bg-green/25"
+                  >
+                    ⚡ Nuôi hết {readyCount} con đủ kẹo
+                  </button>
+                  {feedNote && <span className="text-[12px] font-bold text-green">{feedNote}</span>}
+                </div>
+              )}
+
               {/* Thanh công cụ: tìm + lọc + xếp. Bầy đông thì đây là cách duy nhất để tìm
                   nhanh một con, thay vì đưa mắt quét cả lưới. */}
               <div className="mb-3 flex flex-wrap items-center gap-2">
