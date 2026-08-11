@@ -36,7 +36,8 @@ interface AppContextValue {
   updateHabit: (id: string, input: { title: string; reminder: ReminderTime | null }) => Promise<void>;
   deleteHabit: (id: string) => Promise<void>;
   toggleToday: (id: string) => void;
-  feedPokemon: (key: string) => void;
+  // amount = số kẹo muốn đổ MỘT LẦN (mặc định FEED_CHUNK). Dùng cho "ăn no tới lên dạng".
+  feedPokemon: (key: string, amount?: number) => void;
   pickMega: (key: string, formId: number, formName: string) => void;
   hatchEgg: () => void;
   // Cửa hàng: đổi kẹo lấy trứng (vào hàng chờ nở). Trả về true nếu mua được.
@@ -422,9 +423,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return gained;
   }, [touch]);
 
-  // Cho 1 Pokémon (RIÊNG) ăn -> đổ tối đa FEED_CHUNK kẹo thành thân thiết (1:1). Đủ ngưỡng ->
-  // tiến hoá bậc; tới MEGA_AFFECTION -> Mega (chỉ con này). KHÔNG ảnh hưởng con khác.
-  const feedPokemon = useCallback((key: string) => {
+  // Cho 1 Pokémon (RIÊNG) ăn -> đổ tối đa `amount` kẹo (mặc định FEED_CHUNK) thành thân thiết
+  // (1:1). Đủ ngưỡng -> tiến hoá bậc (đổ to nhảy được NHIỀU bậc một cú — before/afterIdx đã lo);
+  // tới MEGA_AFFECTION -> Mega (chỉ con này). KHÔNG ảnh hưởng con khác.
+  const feedPokemon = useCallback((key: string, amount: number = FEED_CHUNK) => {
     const now = Date.now();
     const d0 = dataRef.current;
     const avail = Math.floor(d0.candy ?? 0);
@@ -432,7 +434,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const idx = d0.party.findIndex((m) => m.key === key);
     if (idx < 0) return;
     const m = d0.party[idx];
-    const spend = Math.min(avail, FEED_CHUNK, MEGA_AFFECTION - m.affection);
+    const spend = Math.min(avail, Math.max(1, Math.floor(amount)), MEGA_AFFECTION - m.affection);
     if (spend <= 0) return; // đã tối đa
     const affection = m.affection + spend;
     const beforeIdx = Math.min(stageFromAffection(m.affection), m.line.length - 1);

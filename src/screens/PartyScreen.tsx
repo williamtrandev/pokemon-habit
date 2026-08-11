@@ -523,7 +523,7 @@ export default function PartyScreen() {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.sheetBody} showsVerticalScrollIndicator={false}>
-          {sel && <CarePanel key={sel.key} mon={sel} candy={candy} onFeed={() => feedPokemon(sel.key)} />}
+          {sel && <CarePanel key={sel.key} mon={sel} candy={candy} onFeed={(amount) => feedPokemon(sel.key, amount)} />}
         </ScrollView>
       </View>
     </Modal>
@@ -544,7 +544,7 @@ export default function PartyScreen() {
   );
 }
 
-function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFeed: () => void }) {
+function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFeed: (amount?: number) => void }) {
   const { colors } = useTheme();
   const { pickMega, data, setHeldItem } = useApp();
   const styles = useThemedStyles(makeStyles);
@@ -586,7 +586,7 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
     return () => { a.stop(); b.stop(); };
   }, []);
 
-  const feed = () => {
+  const feed = (amount?: number) => {
     if (candy <= 0) return;
     feedbackComplete();
     jump.setValue(0);
@@ -595,10 +595,30 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
       Animated.spring(jump, { toValue: 0, friction: 4, useNativeDriver: true }),
     ]).start();
     const ids = [heartSeq.current++, heartSeq.current++, heartSeq.current++];
-    setHearts((h) => [...h, ...ids]);
+    // Giữ nút ăn liên tục ~9 lần/giây — chặn trần tim bay kẻo màn ngập DOM node.
+    setHearts((h) => (h.length > 9 ? h : [...h, ...ids]));
     setTimeout(() => setHearts((h) => h.filter((x) => !ids.includes(x))), 1100);
-    onFeed();
+    onFeed(amount);
   };
+
+  // ===== GIỮ NÚT = ăn liên tục =====
+  // 190 con × bấm từng phát 10 kẹo là cực hình. Giữ 350ms là bắt đầu tự lặp ~9 phát/giây;
+  // feed() tự no-op khi hết kẹo/chạm trần nên không cần điều kiện dừng riêng.
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdLoop = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wasHolding = useRef(false);
+  const stopHold = () => {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (holdLoop.current) { clearInterval(holdLoop.current); holdLoop.current = null; }
+  };
+  const startHold = () => {
+    wasHolding.current = false;
+    holdTimer.current = setTimeout(() => {
+      wasHolding.current = true;
+      holdLoop.current = setInterval(() => feed(), 110);
+    }, 350);
+  };
+  useEffect(() => stopHold, []);
 
   const hasMega = megas != null && megas.length > 0;
   const multiMega = hasMega && megas!.length > 1; // nhiều dạng -> cho chọn (Mega/Ash, X/Y)
@@ -637,17 +657,33 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
       <Text style={styles.evoLabel}>{label}</Text>
       <ProgressBar ratio={v.ratio} color={hot ? colors.accent : v.maxedEvo ? colors.green : colors.primary} />
 
-      <Pressable onPress={feed} disabled={!canFeed} style={[styles.feedBtn, !canFeed && styles.feedBtnOff]}>
-        <Text style={styles.feedText}>
-          {atCap
-            ? (v.isMega ? `🔮 Đã hoá ${v.form.name} — hết đường nuôi` : 'Đã nuôi tối đa 🌟')
-            : candy <= 0
-              ? 'Chưa có kẹo — giữ chuỗi để tích thêm'
-              : v.maxedEvo && !hasMega
-                ? 'Đã nuôi tối đa 🌟'
-                : `Cho ăn  🍬 ${Math.min(candy, FEED_CHUNK)}`}
-        </Text>
-      </Pressable>
+      <View style={styles.feedRow}>
+        <Pressable
+          onPress={() => { if (!wasHolding.current) feed(); }}
+          onPressIn={canFeed ? startHold : undefined}
+          onPressOut={stopHold}
+          disabled={!canFeed}
+          style={[styles.feedBtn, !canFeed && styles.feedBtnOff]}
+        >
+          <Text style={styles.feedText}>
+            {atCap
+              ? (v.isMega ? `🔮 Đã hoá ${v.form.name} — hết đường nuôi` : 'Đã nuôi tối đa 🌟')
+              : candy <= 0
+                ? 'Chưa có kẹo — giữ chuỗi để tích thêm'
+                : v.maxedEvo && !hasMega
+                  ? 'Đã nuôi tối đa 🌟'
+                  : `Cho ăn  🍬 ${Math.min(candy, FEED_CHUNK)}`}
+          </Text>
+          {canFeed && <Text style={styles.feedHint}>giữ để ăn liên tục</Text>}
+        </Pressable>
+        {/* Ăn no MỘT CÚ tới dạng kế tiếp — đổ đúng `need` kẹo (thiếu thì đổ hết kẹo đang có). */}
+        {canFeed && g.need != null && (
+          <Pressable onPress={() => feed(g.need!)} style={[styles.feedBtn, styles.feedMaxBtn]}>
+            <Text style={styles.feedText}>⤴ Lên dạng</Text>
+            <Text style={styles.feedHint}>🍬 {Math.min(candy, g.need)}</Text>
+          </Pressable>
+        )}
+      </View>
 
       {g.need != null && (
         <Text style={styles.feedNeed}>
@@ -888,9 +924,12 @@ const makeStyles = (colors: Colors) =>
     floatHeart: { position: 'absolute', bottom: 70, fontSize: 22 },
     careName: { color: colors.text, fontSize: 18, fontWeight: '800', marginTop: spacing.sm },
     evoLabel: { color: colors.textDim, fontSize: 12, fontWeight: '700', marginTop: 2, marginBottom: spacing.sm },
-    feedBtn: { marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, alignSelf: 'stretch', alignItems: 'center' },
+    feedRow: { flexDirection: 'row', gap: spacing.sm, alignSelf: 'stretch', marginTop: spacing.md },
+    feedBtn: { flex: 1, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, alignItems: 'center', justifyContent: 'center' },
+    feedMaxBtn: { flex: 0, backgroundColor: colors.accent, paddingHorizontal: spacing.md },
     feedBtnOff: { backgroundColor: colors.cardAlt },
     feedText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+    feedHint: { color: '#FFFFFFB3', fontWeight: '700', fontSize: 10, marginTop: 1 },
     railTitle: { color: colors.text, fontSize: 13, fontWeight: '800', alignSelf: 'flex-start', marginTop: spacing.lg, marginBottom: spacing.sm },
     rail: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 4, alignSelf: 'stretch' },
     feedNeed: { color: colors.textDim, fontSize: 11.5, fontWeight: '700', textAlign: 'center', marginTop: spacing.sm },

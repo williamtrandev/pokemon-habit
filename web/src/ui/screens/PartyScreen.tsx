@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@app/AppContext';
 import type { PartyMon } from '@app/types';
 import {
@@ -347,7 +347,7 @@ export default function PartyScreen() {
   };
 
   const detail = sel ? (
-    <CarePanel key={sel.key} mon={sel} candy={candy} onFeed={() => feedPokemon(sel.key)} />
+    <CarePanel key={sel.key} mon={sel} candy={candy} onFeed={(amount) => feedPokemon(sel.key, amount)} />
   ) : null;
 
   return (
@@ -706,7 +706,7 @@ function RosterCell({
   );
 }
 
-function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFeed: () => void }) {
+function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFeed: (amount?: number) => void }) {
   const { pickMega, data, setHeldItem } = useApp();
   const bag = data.items ?? {};
   const worn = itemByKey(mon.item);
@@ -744,16 +744,36 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
     };
   }, [v.form.id]);
 
-  const feed = () => {
+  const feed = (amount?: number) => {
     if (candy <= 0) return;
     feedbackComplete();
     setJump((j) => j + 1);
     const base = Date.now();
     const ids = [base, base + 1, base + 2];
-    setHearts((h) => [...h, ...ids]);
+    // Giữ nút ăn liên tục ~9 lần/giây — chặn trần tim bay kẻo màn ngập DOM node.
+    setHearts((h) => (h.length > 9 ? h : [...h, ...ids]));
     window.setTimeout(() => setHearts((h) => h.filter((x) => !ids.includes(x))), 1100);
-    onFeed();
+    onFeed(amount);
   };
+
+  // ===== GIỮ NÚT = ăn liên tục (chuột lẫn cảm ứng qua Pointer Events) =====
+  // Bầy trăm con mà bấm từng phát 10 kẹo là cực hình. Giữ 350ms là tự lặp ~9 phát/giây;
+  // feed() tự no-op khi hết kẹo/chạm trần nên không cần điều kiện dừng riêng.
+  const holdTimer = useRef<number | null>(null);
+  const holdLoop = useRef<number | null>(null);
+  const wasHolding = useRef(false);
+  const stopHold = () => {
+    if (holdTimer.current != null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (holdLoop.current != null) { window.clearInterval(holdLoop.current); holdLoop.current = null; }
+  };
+  const startHold = () => {
+    wasHolding.current = false;
+    holdTimer.current = window.setTimeout(() => {
+      wasHolding.current = true;
+      holdLoop.current = window.setInterval(() => feed(), 110);
+    }, 350);
+  };
+  useEffect(() => stopHold, []);
 
   const hasMega = megas != null && megas.length > 0;
   const multiMega = hasMega && megas.length > 1; // nhiều dạng -> cho chọn (Mega/Ash, X/Y)
@@ -816,17 +836,35 @@ function CarePanel({ mon, candy, onFeed }: { mon: PartyMon; candy: number; onFee
           color={hot ? 'var(--color-accent)' : v.maxedEvo ? 'var(--color-green)' : 'var(--color-primary)'}
         />
 
-        <button
-          type="button"
-          onClick={feed}
-          disabled={!canFeed}
-          className={
-            'mt-3 w-full rounded-pill py-3 text-[14px] font-extrabold transition-colors ' +
-            (canFeed ? 'bg-primary text-white hover:brightness-110' : 'cursor-not-allowed bg-card-alt text-ink-dim')
-          }
-        >
-          {feedLabel}
-        </button>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => { if (!wasHolding.current) feed(); }}
+            onPointerDown={canFeed ? startHold : undefined}
+            onPointerUp={stopHold}
+            onPointerLeave={stopHold}
+            onPointerCancel={stopHold}
+            disabled={!canFeed}
+            className={
+              'min-w-0 flex-1 rounded-pill py-2.5 text-[14px] font-extrabold transition-colors ' +
+              (canFeed ? 'bg-primary text-white hover:brightness-110' : 'cursor-not-allowed bg-card-alt text-ink-dim')
+            }
+          >
+            {feedLabel}
+            {canFeed && <span className="block text-[10px] font-bold text-white/70">giữ để ăn liên tục</span>}
+          </button>
+          {/* Ăn no MỘT CÚ tới dạng kế tiếp — đổ đúng `need` kẹo (thiếu thì đổ hết kẹo đang có). */}
+          {canFeed && g.need != null && (
+            <button
+              type="button"
+              onClick={() => feed(g.need!)}
+              className="shrink-0 rounded-pill bg-accent px-4 py-2.5 text-[14px] font-extrabold text-white transition-colors hover:brightness-110"
+            >
+              ⤴ Lên dạng
+              <span className="block text-[10px] font-bold text-white/70">🍬 {Math.min(candy, g.need)}</span>
+            </button>
+          )}
+        </div>
 
         {g.need != null && (
           <p className="nums mt-2 text-center text-[12px] font-bold text-ink-dim">
