@@ -115,11 +115,13 @@ const SORTS: { k: SortKey; label: string }[] = [
   { k: 'new', label: 'Mới nhất' },
 ];
 
+// Nhãn NGẮN có chủ đích: chip "Đủ kẹo" còn kèm số con (bầy lớn là 2-3 chữ số), nên phải
+// chừa biên để cả nhóm vẫn nằm gọn MỘT hàng trên màn 375px.
 const FILTERS: { k: FilterKey; label: string }[] = [
   { k: 'all', label: 'Tất cả' },
   { k: 'ready', label: 'Đủ kẹo' },
   { k: 'growing', label: 'Đang nuôi' },
-  { k: 'max', label: 'Tối đa' },
+  { k: 'max', label: 'MAX' },
   { k: 'shiny', label: 'Shiny' },
 ];
 
@@ -373,7 +375,7 @@ export default function PartyScreen() {
         <PageHead title="Bầy của tôi" sub={`${party.length} Pokémon · ${reached.length} mốc sức mạnh đã đạt`} />
 
         {party.length > 0 && (
-          <div className="mb-6 grid gap-4 lg:grid-cols-3">
+          <div className="mb-5 grid gap-3 sm:gap-4 lg:mb-6 lg:grid-cols-3">
             {/* Sức mạnh bầy — tổng chỉ số gốc dạng hiện tại */}
             <Card
               title="⚡ Sức mạnh bầy"
@@ -413,7 +415,10 @@ export default function PartyScreen() {
                   </span>
                 }
               >
-                <div className="flex items-center gap-3">
+                {/* Điện thoại (một cột rộng): nút nằm CÙNG HÀNG với ảnh boss — ba thẻ này xếp
+                    dọc đã chiếm gần hai màn, cắt được hàng nào hay hàng đó. Từ lg trở lên ba
+                    thẻ chia ba cột hẹp, nút quay lại chiếm nguyên hàng dưới cho khỏi dồn chữ. */}
+                <div className="flex flex-wrap items-center gap-3">
                   <span
                     className="grid size-16 shrink-0 place-items-center rounded-ctl border-[1.5px] bg-card-alt"
                     style={{ borderColor: encounter.tier.color }}
@@ -428,15 +433,15 @@ export default function PartyScreen() {
                         : `Biến mất sau ${countdown(encounter.expireAt - now)} · thắng 🍬~${rewardPreview}`}
                     </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={openArena}
+                    disabled={!bossReady || beaten}
+                    className="shrink-0 rounded-pill bg-primary px-4 py-2.5 text-[13.5px] font-extrabold text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 lg:w-full"
+                  >
+                    {beaten ? 'Đã hạ lượt này' : bossReady ? 'Vào trận' : 'Đang tải…'}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={openArena}
-                  disabled={!bossReady || beaten}
-                  className="mt-3 w-full rounded-pill bg-primary py-2.5 text-[13.5px] font-extrabold text-white transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {beaten ? 'Đã hạ lượt này' : bossReady ? 'Vào trận' : 'Đang tải…'}
-                </button>
               </Card>
             ) : (
               <Card title="⚔️ Đấu đạo trường">
@@ -472,7 +477,11 @@ export default function PartyScreen() {
                 ) : undefined
               }
             >
-              <p className="mb-3 text-[12.5px] text-ink-dim">Đổi kẹo lấy trứng — cách nhanh để thu thêm Pokémon.</p>
+              {/* Câu mô tả chỉ để dẫn dắt lần đầu — trên điện thoại nó ăn nguyên một hàng
+                  giữa lúc màn đã chật, nên ẩn ở khổ hẹp. */}
+              <p className="mb-3 hidden text-[12.5px] text-ink-dim sm:block">
+                Đổi kẹo lấy trứng — cách nhanh để thu thêm Pokémon.
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <EggBtn label="🥚 Trứng thường" price={EGG_PRICE} candy={candy} onBuy={() => buyEgg(false)} />
                 <EggBtn label="🥚✨ Trứng hiếm" price={RARE_EGG_PRICE} candy={candy} rare onBuy={() => buyEgg(true)} />
@@ -523,22 +532,29 @@ export default function PartyScreen() {
                   </span>
                 </label>
 
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1 sm:gap-1.5">
                   {FILTERS.map((f) => (
                     <button
                       key={f.k}
                       type="button"
                       onClick={() => setFilter(f.k)}
                       aria-pressed={filter === f.k}
+                      // px/font siết để 5 chip vừa MỘT hàng trên màn 375px — rộng hơn thì
+                      // Tailwind nới lại; bản cũ tràn đúng một chip ("Shiny") xuống dòng.
                       className={
-                        'rounded-pill border px-3 py-1.5 text-[12.5px] font-extrabold transition-colors ' +
+                        'rounded-pill border px-2 py-1.5 text-[12px] font-extrabold transition-colors sm:px-3 sm:text-[12.5px] ' +
                         (filter === f.k
                           ? 'border-primary bg-primary text-white'
                           : 'border-line bg-card text-ink-dim hover:text-ink')
                       }
                     >
                       {f.label}
-                      {f.k === 'ready' && readyCount > 0 ? ` ${readyCount}` : ''}
+                      {/* Số con đủ kẹo đã nằm trên nút "Nuôi hết N con" ngay phía trên, nên ở
+                          màn hẹp bỏ đi cho nhóm chip gọn MỘT hàng — bầy vài trăm con thì số
+                          ba chữ số đủ đẩy chip cuối xuống dòng. */}
+                      {f.k === 'ready' && readyCount > 0 ? (
+                        <span className="hidden sm:inline"> {readyCount}</span>
+                      ) : null}
                     </button>
                   ))}
                 </div>

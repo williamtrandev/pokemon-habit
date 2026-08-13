@@ -58,7 +58,7 @@ export function Card({
           : 'border-line bg-card';
 
   return (
-    <section className={'rounded-card border p-4 lg:p-5 ' + border + ' ' + className}>
+    <section className={'rounded-card border p-3.5 sm:p-4 lg:p-5 ' + border + ' ' + className}>
       {title && (
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-[15px] font-extrabold tracking-tight text-ink">{title}</h2>
